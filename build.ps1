@@ -32,13 +32,20 @@ if (!(Test-Path "assets\app.ico")) {
     Write-Host "assets/app.ico was not found; building with the default Windows icon."
 }
 
+$cmdPath = Join-Path $env:TEMP "build-space-browser.cmd"
 $cmd = @"
+@echo off
 call "$vsDevCmd" -arch=x64 -host_arch=x64
+if errorlevel 1 exit /b %errorlevel%
+cd /d "$repo"
 rc /nologo /fo "build\app.res" "src\app.rc"
+if errorlevel 1 exit /b %errorlevel%
 cl /nologo /std:c++17 /EHsc /utf-8 /O2 /MT /W4 /DUNICODE /D_UNICODE /I "$sdk\build\native\include" "src\main.cpp" "build\app.res" /link /SUBSYSTEM:WINDOWS /OUT:"build\Space_.exe" "$sdk\build\native\x64\WebView2LoaderStatic.lib" user32.lib gdi32.lib ole32.lib shell32.lib shlwapi.lib advapi32.lib version.lib runtimeobject.lib
+if errorlevel 1 exit /b %errorlevel%
 "@
+Set-Content -Path $cmdPath -Value $cmd -Encoding ASCII
 
-cmd.exe /d /s /c $cmd
+cmd.exe /d /c "`"$cmdPath`""
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed with exit code $LASTEXITCODE"
 }
