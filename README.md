@@ -45,6 +45,7 @@ In VS Code:
 
 - Left sidebar inspired by Opera GX
 - Custom-drawn sidebar icons instead of text labels
+- Social shortcut icons for ChatGPT, WhatsApp Web, Telegram Web, and Discord
 - Tab strip with new-tab button
 - Browser navigation bar with back, forward, reload, home, address, safety badge, and Go
 - Hideable right panel with safety, extensions, settings, history, and links views

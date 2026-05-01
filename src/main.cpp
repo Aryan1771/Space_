@@ -765,6 +765,33 @@ void draw_line_icon(HDC dc, const RECT& rect, COLORREF color, int kind) {
             Ellipse(dc, cx - 13, cy - 10, cx + 13, cy + 12);
             Ellipse(dc, cx - 6, cy - 4, cx - 2, cy); Ellipse(dc, cx + 2, cy - 5, cx + 6, cy - 1); Ellipse(dc, cx - 1, cy + 3, cx + 3, cy + 7);
             break;
+        case 7:  // ChatGPT-style knot
+            for (int i = 0; i < 6; ++i) {
+                double a = i * 3.14159 / 3.0;
+                int x1 = cx + static_cast<int>(std::cos(a) * 5);
+                int y1 = cy + static_cast<int>(std::sin(a) * 5);
+                int x2 = cx + static_cast<int>(std::cos(a + 0.75) * 14);
+                int y2 = cy + static_cast<int>(std::sin(a + 0.75) * 14);
+                MoveToEx(dc, x1, y1, nullptr); LineTo(dc, x2, y2);
+                Ellipse(dc, x2 - 3, y2 - 3, x2 + 3, y2 + 3);
+            }
+            Ellipse(dc, cx - 5, cy - 5, cx + 5, cy + 5);
+            break;
+        case 8:  // WhatsApp-style chat bubble and phone
+            RoundRect(dc, cx - 13, cy - 11, cx + 13, cy + 10, 12, 12);
+            MoveToEx(dc, cx - 5, cy + 9, nullptr); LineTo(dc, cx - 12, cy + 15); LineTo(dc, cx - 9, cy + 6);
+            Arc(dc, cx - 6, cy - 6, cx + 7, cy + 8, cx - 2, cy - 5, cx + 6, cy + 2);
+            break;
+        case 9:  // Telegram-style paper plane
+            MoveToEx(dc, cx - 14, cy - 2, nullptr); LineTo(dc, cx + 14, cy - 13); LineTo(dc, cx + 5, cy + 14); LineTo(dc, cx - 2, cy + 4); LineTo(dc, cx - 14, cy - 2);
+            MoveToEx(dc, cx - 2, cy + 4, nullptr); LineTo(dc, cx + 14, cy - 13);
+            break;
+        case 10:  // Discord-style controller face
+            RoundRect(dc, cx - 15, cy - 10, cx + 15, cy + 10, 10, 10);
+            Ellipse(dc, cx - 8, cy - 3, cx - 4, cy + 1);
+            Ellipse(dc, cx + 4, cy - 3, cx + 8, cy + 1);
+            Arc(dc, cx - 8, cy - 2, cx + 8, cy + 10, cx - 5, cy + 5, cx + 5, cy + 5);
+            break;
         default:  // menu
             Ellipse(dc, cx - 10, cy - 2, cx - 6, cy + 2);
             Ellipse(dc, cx - 2, cy - 2, cx + 2, cy + 2);
@@ -1073,6 +1100,18 @@ private:
                 case 6:
                     theme_index_ = (theme_index_ + 1) % themes().size();
                     break;
+                case 7:
+                    navigate("https://chat.openai.com/");
+                    break;
+                case 8:
+                    navigate("https://web.whatsapp.com/");
+                    break;
+                case 9:
+                    navigate("https://web.telegram.org/");
+                    break;
+                case 10:
+                    navigate("https://discord.com/app");
+                    break;
                 default:
                     toggle_panel(PanelMode::Safety);
                     break;
@@ -1219,7 +1258,7 @@ private:
     void paint_sidebar(HDC dc, const RECT& client, const Theme& t) {
         RECT sidebar{0, 0, kSidebarWidth, client.bottom};
         fill_rect(dc, sidebar, t.sidebar);
-        for (size_t i = 0; i < 8; ++i) {
+        for (size_t i = 0; i < 12; ++i) {
             RECT r{10, static_cast<LONG>(12 + i * 40), kSidebarWidth - 10, static_cast<LONG>(44 + i * 40)};
             const bool active =
                 (i == 1 && panel_ == PanelMode::Safety) ||
@@ -1288,7 +1327,7 @@ private:
         std::vector<std::string> lines;
         if (panel_ == PanelMode::Extensions) {
             title = "Extensions";
-            lines = {"Built-in safety scanner", "Theme manager", "Sidebar launcher", "Extension API coming next"};
+            lines = {"Built-in safety scanner", "Theme manager", "Sidebar launcher", "Social shortcuts", "ChatGPT, WhatsApp, Telegram, Discord", "Extension API coming next"};
         } else if (panel_ == PanelMode::Settings) {
             title = "Settings";
             lines = {"Theme: " + theme().name, "Executable icon: assets/app.ico", "Engine: custom C++ base", "Renderer: custom DOM/layout prototype"};
