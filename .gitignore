@@ -1,5 +1,9 @@
-__pycache__/
+build/
+out/
+*.exe
+*.obj
+*.o
+*.ilk
+*.pdb
 *.py[cod]
-cpp_browser/build/
-cpp_browser/*.exe
-cpp_browser/src/output/
+__pycache__/

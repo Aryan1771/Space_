@@ -2,17 +2,17 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Build Safe GX Browser C++",
+      "label": "Build Browser From Scratch",
       "type": "shell",
       "command": "powershell",
       "args": [
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "${workspaceFolder}/cpp_browser/build.ps1"
+        "${workspaceFolder}/build.ps1"
       ],
       "options": {
-        "cwd": "${workspaceFolder}/cpp_browser"
+        "cwd": "${workspaceFolder}"
       },
       "group": {
         "kind": "build",
@@ -21,16 +21,16 @@
       "problemMatcher": "$gcc"
     },
     {
-      "label": "Run Safe GX Browser C++",
+      "label": "Run Browser From Scratch",
       "type": "shell",
-      "command": "${workspaceFolder}/cpp_browser/build/safe_gx_browser.exe",
+      "command": "${workspaceFolder}/build/browser.exe",
+      "dependsOn": "Build Browser From Scratch",
       "options": {
-        "cwd": "${workspaceFolder}/cpp_browser",
+        "cwd": "${workspaceFolder}",
         "env": {
           "PATH": "C:/msys64/ucrt64/bin;${env:PATH}"
         }
       },
-      "dependsOn": "Build Safe GX Browser C++",
       "problemMatcher": []
     }
   ]

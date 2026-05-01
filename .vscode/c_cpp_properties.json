@@ -1,17 +1,11 @@
 {
   "configurations": [
     {
-      "name": "Win32 MSYS2 UCRT64",
-      "includePath": [
-        "${workspaceFolder}/cpp_browser/src"
-      ],
-      "defines": [
-        "_DEBUG",
-        "UNICODE",
-        "_UNICODE"
-      ],
-      "windowsSdkVersion": "10.0.22621.0",
+      "name": "MSYS2 UCRT64",
       "compilerPath": "C:/msys64/ucrt64/bin/g++.exe",
+      "includePath": [
+        "${workspaceFolder}/src"
+      ],
       "cStandard": "c17",
       "cppStandard": "c++17",
       "intelliSenseMode": "windows-gcc-x64"

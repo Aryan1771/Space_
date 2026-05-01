@@ -2,23 +2,22 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug Safe GX Browser C++",
+      "name": "Debug Browser From Scratch",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/cpp_browser/build/safe_gx_browser.exe",
+      "program": "${workspaceFolder}/build/browser.exe",
       "args": [],
-      "stopAtEntry": false,
-      "cwd": "${workspaceFolder}/cpp_browser",
+      "cwd": "${workspaceFolder}",
+      "externalConsole": true,
+      "MIMode": "gdb",
+      "miDebuggerPath": "C:/msys64/ucrt64/bin/gdb.exe",
       "environment": [
         {
           "name": "PATH",
           "value": "C:/msys64/ucrt64/bin;${env:PATH}"
         }
       ],
-      "externalConsole": true,
-      "MIMode": "gdb",
-      "miDebuggerPath": "C:/msys64/ucrt64/bin/gdb.exe",
-      "preLaunchTask": "Build Safe GX Browser C++"
+      "preLaunchTask": "Build Browser From Scratch"
     }
   ]
 }
