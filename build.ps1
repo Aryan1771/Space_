@@ -1,36 +1,46 @@
 $ErrorActionPreference = "Stop"
 
-$gpp = "C:\msys64\ucrt64\bin\g++.exe"
-$windres = "C:\msys64\ucrt64\bin\windres.exe"
-if (!(Test-Path $gpp)) {
-    throw "MSYS2 g++ was not found at $gpp"
-}
+$webViewVersion = "1.0.3912.50"
+$repo = Split-Path -Parent $MyInvocation.MyCommand.Path
+$deps = Join-Path $repo "deps"
+$sdk = Join-Path $deps "Microsoft.Web.WebView2"
+$sdkHeader = Join-Path $sdk "build\native\include\WebView2.h"
+$sdkLib = Join-Path $sdk "build\native\x64\WebView2LoaderStatic.lib"
+$vsDevCmd = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
 
-New-Item -ItemType Directory -Force -Path "build" | Out-Null
+Set-Location $repo
+New-Item -ItemType Directory -Force -Path "build", $deps | Out-Null
 
-$resourceObject = $null
-if ((Test-Path "assets\app.ico") -and (Test-Path $windres)) {
-    & $windres src\app.rc -O coff -o build\app.res
-    if ($LASTEXITCODE -ne 0) {
-        throw "Resource compilation failed with exit code $LASTEXITCODE"
+if (!(Test-Path $sdkHeader) -or !(Test-Path $sdkLib)) {
+    $nupkg = Join-Path $deps "Microsoft.Web.WebView2.$webViewVersion.nupkg"
+    $zip = Join-Path $deps "Microsoft.Web.WebView2.$webViewVersion.zip"
+    $url = "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/$webViewVersion"
+    Write-Host "Downloading Microsoft WebView2 SDK $webViewVersion..."
+    Invoke-WebRequest -Uri $url -OutFile $nupkg
+    Copy-Item $nupkg $zip -Force
+    if (Test-Path $sdk) {
+        Remove-Item $sdk -Recurse -Force
     }
-    $resourceObject = "build\app.res"
-    Write-Host "Embedding assets/app.ico"
-} elseif (!(Test-Path "assets\app.ico")) {
-    Write-Host "No assets/app.ico found; building without a custom executable icon"
+    Expand-Archive -Path $zip -DestinationPath $sdk -Force
 }
 
-$sources = @("src/main.cpp")
-if ($resourceObject) {
-    $sources += $resourceObject
+if (!(Test-Path $vsDevCmd)) {
+    throw "Visual Studio C++ build tools were not found. Install 'Desktop development with C++' in Visual Studio Installer."
 }
 
-& $gpp -std=c++17 -Wall -Wextra -Wpedantic -O2 -mwindows `
-    @sources `
-    -o build/Space_.exe
+if (!(Test-Path "assets\app.ico")) {
+    Write-Host "assets/app.ico was not found; building with the default Windows icon."
+}
 
+$cmd = @"
+call "$vsDevCmd" -arch=x64 -host_arch=x64
+rc /nologo /fo "build\app.res" "src\app.rc"
+cl /nologo /std:c++17 /EHsc /utf-8 /O2 /MT /W4 /DUNICODE /D_UNICODE /I "$sdk\build\native\include" "src\main.cpp" "build\app.res" /link /SUBSYSTEM:WINDOWS /OUT:"build\Space_.exe" "$sdk\build\native\x64\WebView2LoaderStatic.lib" user32.lib gdi32.lib ole32.lib shell32.lib shlwapi.lib advapi32.lib version.lib runtimeobject.lib
+"@
+
+cmd.exe /d /s /c $cmd
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed with exit code $LASTEXITCODE"
 }
 
-Write-Host "Built build/Space_.exe"
+Write-Host "Built build\Space_.exe"

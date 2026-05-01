@@ -2,6 +2,8 @@ build/
 out/
 src/output/
 .vs/
+deps/
+.space_webview/
 *.exe
 *.obj
 *.o

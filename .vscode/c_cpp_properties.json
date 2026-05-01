@@ -1,14 +1,19 @@
 {
   "configurations": [
     {
-      "name": "MSYS2 UCRT64",
-      "compilerPath": "C:/msys64/ucrt64/bin/g++.exe",
+      "name": "MSVC x64",
+      "compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe",
       "includePath": [
-        "${workspaceFolder}/src"
+        "${workspaceFolder}/src",
+        "${workspaceFolder}/deps/Microsoft.Web.WebView2/build/native/include"
+      ],
+      "defines": [
+        "UNICODE",
+        "_UNICODE"
       ],
       "cStandard": "c17",
       "cppStandard": "c++17",
-      "intelliSenseMode": "windows-gcc-x64"
+      "intelliSenseMode": "windows-msvc-x64"
     }
   ],
   "version": 4

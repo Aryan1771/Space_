@@ -1,1565 +1,398 @@
+#include <windows.h>
+#include <windowsx.h>
+#include <wrl.h>
 #include <algorithm>
-#include <cctype>
 #include <cmath>
-#include <iostream>
-#include <map>
-#include <memory>
-#include <optional>
-#include <sstream>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
-#include <windows.h>
-#include <windowsx.h>
-#include <wininet.h>
-
 #include "resource.h"
+#include "WebView2.h"
 
-namespace browser {
+using Microsoft::WRL::Callback;
+using Microsoft::WRL::ComPtr;
 
-constexpr const char* kAppName = "Space_";
-constexpr const char* kUserAgent = "Space_/0.1";
+namespace {
 
-std::string lower(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    return value;
-}
+constexpr wchar_t kAppName[] = L"Space_";
+constexpr wchar_t kHomeUrl[] = L"https://www.google.com/";
+constexpr int kSidebar = 64;
+constexpr int kTopbar = 94;
+constexpr int kSidePanel = 440;
 
-std::string trim(const std::string& value) {
-    const auto begin = value.find_first_not_of(" \t\r\n");
-    if (begin == std::string::npos) {
-        return "";
-    }
-    const auto end = value.find_last_not_of(" \t\r\n");
-    return value.substr(begin, end - begin + 1);
-}
-
-std::string collapse_space(const std::string& value) {
-    std::string output;
-    bool previous_space = false;
-    for (unsigned char ch : value) {
-        const bool space = std::isspace(ch) != 0;
-        if (space) {
-            if (!previous_space) {
-                output.push_back(' ');
-            }
-            previous_space = true;
-        } else {
-            output.push_back(static_cast<char>(ch));
-            previous_space = false;
-        }
-    }
-    return trim(output);
-}
-
-std::string decode_entities(std::string value) {
-    const std::vector<std::pair<std::string, std::string>> entities = {
-        {"&nbsp;", " "}, {"&amp;", "&"}, {"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&#39;", "'"}};
-    for (const auto& entity : entities) {
-        size_t pos = 0;
-        while ((pos = value.find(entity.first, pos)) != std::string::npos) {
-            value.replace(pos, entity.first.size(), entity.second);
-            pos += entity.second.size();
-        }
-    }
-    return value;
-}
-
-bool starts_with(const std::string& value, const std::string& prefix) {
-    return value.rfind(prefix, 0) == 0;
-}
-
-std::string host_from_url(const std::string& url) {
-    const auto scheme = url.find("://");
-    if (scheme == std::string::npos) {
-        return "";
-    }
-    const auto host_begin = scheme + 3;
-    const auto path_begin = url.find('/', host_begin);
-    std::string host = path_begin == std::string::npos ? url.substr(host_begin) : url.substr(host_begin, path_begin - host_begin);
-    const auto port = host.find(':');
-    if (port != std::string::npos) {
-        host = host.substr(0, port);
-    }
-    return lower(host);
-}
-
-std::string origin_from_url(const std::string& url) {
-    const auto scheme = url.find("://");
-    if (scheme == std::string::npos) {
-        return "";
-    }
-    const auto path_begin = url.find('/', scheme + 3);
-    return path_begin == std::string::npos ? url : url.substr(0, path_begin);
-}
-
-std::string resolve_url(const std::string& base, const std::string& href) {
-    if (starts_with(href, "http://") || starts_with(href, "https://")) {
-        return href;
-    }
-    if (href.empty() || starts_with(href, "#") || starts_with(lower(href), "javascript:")) {
-        return "";
-    }
-    if (href[0] == '/') {
-        return origin_from_url(base) + href;
-    }
-    const auto slash = base.find_last_of('/');
-    const std::string folder = slash == std::string::npos ? origin_from_url(base) + "/" : base.substr(0, slash + 1);
-    return folder + href;
-}
-
-std::string google_search_url(const std::string& query) {
-    std::string encoded;
-    for (unsigned char ch : query) {
-        if (std::isalnum(ch)) {
-            encoded.push_back(static_cast<char>(ch));
-        } else if (std::isspace(ch)) {
-            encoded.push_back('+');
-        } else {
-            encoded.push_back('_');
-        }
-    }
-    return "https://www.google.com/search?q=" + encoded;
-}
-
-std::string normalize_input(const std::string& value) {
-    const std::string input = trim(value);
-    if (input.empty()) {
-        return google_search_url("browser from scratch");
-    }
-    if (starts_with(input, "http://") || starts_with(input, "https://")) {
-        return input;
-    }
-    if (input.find('.') != std::string::npos && input.find(' ') == std::string::npos) {
-        return "https://" + input;
-    }
-    return google_search_url(input);
-}
-
-struct HttpResponse {
-    std::string url;
-    std::string body;
-    long status = 0;
+struct Theme {
+    COLORREF bg, sidebar, sidebarHot, top, tab, activeTab, address, panel, text, muted, accent, safe, risk;
 };
 
-class NetworkService {
-public:
-    HttpResponse get(const std::string& url) const {
-        WinInet api;
-        HINTERNET session = api.internet_open(kUserAgent, INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
-        if (!session) {
-            throw std::runtime_error("Could not start network session.");
-        }
-
-        HINTERNET request = api.internet_open_url(
-            session,
-            url.c_str(),
-            "Accept: text/html,*/*\r\nUser-Agent: Space_/0.1\r\n",
-            0,
-            INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE,
-            0);
-        if (!request) {
-            api.internet_close(session);
-            throw std::runtime_error("Could not open URL.");
-        }
-
-        std::string body;
-        std::vector<char> buffer(16384);
-        DWORD bytes_read = 0;
-        while (api.internet_read(request, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read) && bytes_read > 0) {
-            body.append(buffer.data(), bytes_read);
-            if (body.size() > 3'000'000) {
-                api.internet_close(request);
-                api.internet_close(session);
-                throw std::runtime_error("Page is too large for the first engine version.");
-            }
-        }
-
-        HttpResponse response;
-        response.url = url;
-        response.body = body;
-        api.internet_close(request);
-        api.internet_close(session);
-        return response;
-    }
-
-private:
-    struct WinInet {
-        HMODULE dll = nullptr;
-        decltype(&InternetOpenA) internet_open = nullptr;
-        decltype(&InternetOpenUrlA) internet_open_url = nullptr;
-        decltype(&InternetReadFile) internet_read = nullptr;
-        decltype(&InternetCloseHandle) internet_close = nullptr;
-
-        WinInet() {
-            dll = LoadLibraryA("wininet.dll");
-            if (!dll) {
-                throw std::runtime_error("Could not load wininet.dll.");
-            }
-#if defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wcast-function-type"
-#endif
-            internet_open = reinterpret_cast<decltype(internet_open)>(GetProcAddress(dll, "InternetOpenA"));
-            internet_open_url = reinterpret_cast<decltype(internet_open_url)>(GetProcAddress(dll, "InternetOpenUrlA"));
-            internet_read = reinterpret_cast<decltype(internet_read)>(GetProcAddress(dll, "InternetReadFile"));
-            internet_close = reinterpret_cast<decltype(internet_close)>(GetProcAddress(dll, "InternetCloseHandle"));
-#if defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
-            if (!internet_open || !internet_open_url || !internet_read || !internet_close) {
-                throw std::runtime_error("Missing required wininet.dll functions.");
-            }
-        }
+std::vector<Theme> Themes() {
+    return {
+        {RGB(7,8,14), RGB(3,4,8), RGB(18,24,42), RGB(14,16,25), RGB(28,32,48), RGB(38,45,70), RGB(5,7,13), RGB(14,16,25), RGB(245,247,255), RGB(148,160,194), RGB(55,107,255), RGB(23,210,126), RGB(255,74,105)},
+        {RGB(10,7,11), RGB(5,3,5), RGB(36,17,26), RGB(20,13,19), RGB(39,25,35), RGB(66,35,52), RGB(8,5,8), RGB(20,13,19), RGB(255,245,248), RGB(196,148,160), RGB(255,45,85), RGB(30,215,126), RGB(255,65,88)},
+        {RGB(5,10,8), RGB(2,6,5), RGB(14,37,28), RGB(10,19,16), RGB(18,39,31), RGB(25,62,47), RGB(4,9,7), RGB(10,19,16), RGB(238,255,247), RGB(143,188,169), RGB(48,230,150), RGB(30,230,146), RGB(255,75,98)},
+        {RGB(246,248,252), RGB(235,239,247), RGB(220,230,248), RGB(246,248,252), RGB(225,230,239), RGB(255,255,255), RGB(255,255,255), RGB(243,246,251), RGB(32,33,36), RGB(95,99,104), RGB(26,115,232), RGB(24,128,56), RGB(217,48,37)},
     };
-};
-
-class AppIcon {
-public:
-    static HICON load_large() {
-        return load_icon(32, 32);
-    }
-
-    static HICON load_small() {
-        return load_icon(16, 16);
-    }
-
-    static void apply_to_window(HWND window) {
-        if (!window) {
-            return;
-        }
-        if (HICON large = load_large()) {
-            SendMessage(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(large));
-        }
-        if (HICON small = load_small()) {
-            SendMessage(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(small));
-        }
-    }
-
-private:
-    static HICON load_icon(int width, int height) {
-        HICON icon = reinterpret_cast<HICON>(LoadImage(
-            GetModuleHandle(nullptr),
-            MAKEINTRESOURCE(IDI_APP_ICON),
-            IMAGE_ICON,
-            width,
-            height,
-            LR_DEFAULTCOLOR));
-        if (icon) {
-            return icon;
-        }
-        return reinterpret_cast<HICON>(LoadImage(
-            nullptr,
-            "assets\\app.ico",
-            IMAGE_ICON,
-            width,
-            height,
-            LR_LOADFROMFILE | LR_DEFAULTCOLOR));
-    }
-};
-
-enum class TokenType { StartTag, EndTag, Text };
-
-struct Token {
-    TokenType type = TokenType::Text;
-    std::string name;
-    std::string text;
-    std::map<std::string, std::string> attributes;
-};
-
-class HtmlTokenizer {
-public:
-    explicit HtmlTokenizer(std::string source) : source_(std::move(source)) {}
-
-    std::vector<Token> tokenize() {
-        std::vector<Token> tokens;
-        while (position_ < source_.size()) {
-            if (source_[position_] == '<') {
-                if (starts_with_at("<!--")) {
-                    skip_until("-->");
-                    continue;
-                }
-                Token tag = read_tag();
-                if (!tag.name.empty()) {
-                    const bool skip_raw_text =
-                        tag.type == TokenType::StartTag &&
-                        (tag.name == "script" || tag.name == "style" || tag.name == "noscript");
-                    tokens.push_back(std::move(tag));
-                    if (skip_raw_text) {
-                        const std::string close_tag = "</" + tokens.back().name + ">";
-                        const std::string lowered_source = lower(source_);
-                        const auto close = lowered_source.find(close_tag, position_);
-                        if (close == std::string::npos) {
-                            position_ = source_.size();
-                        } else {
-                            position_ = close;
-                        }
-                    }
-                }
-            } else {
-                Token text;
-                text.type = TokenType::Text;
-                text.text = decode_entities(read_text());
-                if (!trim(text.text).empty()) {
-                    tokens.push_back(std::move(text));
-                }
-            }
-        }
-        return tokens;
-    }
-
-private:
-    bool starts_with_at(const std::string& needle) const {
-        return source_.compare(position_, needle.size(), needle) == 0;
-    }
-
-    void skip_until(const std::string& needle) {
-        const auto found = source_.find(needle, position_ + needle.size());
-        position_ = found == std::string::npos ? source_.size() : found + needle.size();
-    }
-
-    std::string read_text() {
-        const auto begin = position_;
-        const auto end = source_.find('<', begin);
-        position_ = end == std::string::npos ? source_.size() : end;
-        return source_.substr(begin, position_ - begin);
-    }
-
-    Token read_tag() {
-        const auto close = source_.find('>', position_);
-        if (close == std::string::npos) {
-            position_ = source_.size();
-            return {};
-        }
-
-        std::string inside = trim(source_.substr(position_ + 1, close - position_ - 1));
-        position_ = close + 1;
-        if (inside.empty() || inside[0] == '!' || inside[0] == '?') {
-            return {};
-        }
-
-        Token token;
-        if (inside[0] == '/') {
-            token.type = TokenType::EndTag;
-            inside = trim(inside.substr(1));
-        } else {
-            token.type = TokenType::StartTag;
-        }
-
-        std::istringstream stream(inside);
-        stream >> token.name;
-        token.name = lower(token.name);
-        if (!token.name.empty() && token.name.back() == '/') {
-            token.name.pop_back();
-        }
-
-        std::string rest;
-        std::getline(stream, rest);
-        parse_attributes(rest, token.attributes);
-        return token;
-    }
-
-    static void parse_attributes(const std::string& source, std::map<std::string, std::string>& attributes) {
-        size_t pos = 0;
-        while (pos < source.size()) {
-            while (pos < source.size() && std::isspace(static_cast<unsigned char>(source[pos]))) {
-                ++pos;
-            }
-            size_t name_begin = pos;
-            while (pos < source.size() && (std::isalnum(static_cast<unsigned char>(source[pos])) || source[pos] == '-' || source[pos] == '_')) {
-                ++pos;
-            }
-            if (name_begin == pos) {
-                ++pos;
-                continue;
-            }
-            std::string name = lower(source.substr(name_begin, pos - name_begin));
-            while (pos < source.size() && std::isspace(static_cast<unsigned char>(source[pos]))) {
-                ++pos;
-            }
-            std::string value;
-            if (pos < source.size() && source[pos] == '=') {
-                ++pos;
-                while (pos < source.size() && std::isspace(static_cast<unsigned char>(source[pos]))) {
-                    ++pos;
-                }
-                if (pos < source.size() && (source[pos] == '"' || source[pos] == '\'')) {
-                    const char quote = source[pos++];
-                    const auto value_end = source.find(quote, pos);
-                    value = source.substr(pos, value_end == std::string::npos ? std::string::npos : value_end - pos);
-                    pos = value_end == std::string::npos ? source.size() : value_end + 1;
-                } else {
-                    const auto value_begin = pos;
-                    while (pos < source.size() && !std::isspace(static_cast<unsigned char>(source[pos]))) {
-                        ++pos;
-                    }
-                    value = source.substr(value_begin, pos - value_begin);
-                }
-            }
-            attributes[name] = decode_entities(value);
-        }
-    }
-
-    std::string source_;
-    size_t position_ = 0;
-};
-
-struct Node {
-    std::string name;
-    std::string text;
-    std::map<std::string, std::string> attributes;
-    std::vector<std::unique_ptr<Node>> children;
-    Node* parent = nullptr;
-};
-
-class HtmlTreeBuilder {
-public:
-    std::unique_ptr<Node> build(const std::vector<Token>& tokens) {
-        auto root = std::make_unique<Node>();
-        root->name = "document";
-        Node* current = root.get();
-
-        for (const Token& token : tokens) {
-            if (token.type == TokenType::Text) {
-                auto text = std::make_unique<Node>();
-                text->name = "#text";
-                text->text = collapse_space(token.text);
-                text->parent = current;
-                if (!text->text.empty()) {
-                    current->children.push_back(std::move(text));
-                }
-                continue;
-            }
-            if (token.type == TokenType::StartTag) {
-                auto element = std::make_unique<Node>();
-                element->name = token.name;
-                element->attributes = token.attributes;
-                element->parent = current;
-                Node* raw = element.get();
-                current->children.push_back(std::move(element));
-                if (!is_void_element(token.name)) {
-                    current = raw;
-                }
-                continue;
-            }
-            if (token.type == TokenType::EndTag) {
-                while (current->parent && current->name != token.name) {
-                    current = current->parent;
-                }
-                if (current->parent) {
-                    current = current->parent;
-                }
-            }
-        }
-        return root;
-    }
-
-private:
-    static bool is_void_element(const std::string& name) {
-        static const std::vector<std::string> voids = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"};
-        return std::find(voids.begin(), voids.end(), name) != voids.end();
-    }
-
-};
-
-struct Document {
-    std::string url;
-    std::string title = "Untitled";
-    std::unique_ptr<Node> root;
-    std::vector<std::pair<std::string, std::string>> links;
-    int script_count = 0;
-    int iframe_count = 0;
-    int password_count = 0;
-};
-
-class DocumentLoader {
-public:
-    Document load(const std::string& url, const std::string& html) const {
-        HtmlTokenizer tokenizer(html);
-        std::vector<Token> tokens = tokenizer.tokenize();
-        Document document;
-        document.url = url;
-        document.root = HtmlTreeBuilder().build(tokens);
-        walk(*document.root, document);
-        if (document.title.empty()) {
-            document.title = "Untitled";
-        }
-        return document;
-    }
-
-private:
-    static void walk(const Node& node, Document& document) {
-        if (node.name == "title") {
-            document.title = collect_text(node);
-        }
-        if (node.name == "a") {
-            const auto href = node.attributes.find("href");
-            if (href != node.attributes.end()) {
-                const std::string resolved = resolve_url(document.url, href->second);
-                if (!resolved.empty()) {
-                    std::string label = collect_text(node);
-                    if (label.empty()) {
-                        label = resolved;
-                    }
-                    document.links.push_back({label, resolved});
-                }
-            }
-        }
-        if (node.name == "script") {
-            ++document.script_count;
-        }
-        if (node.name == "iframe") {
-            ++document.iframe_count;
-        }
-        if (node.name == "input") {
-            const auto type = node.attributes.find("type");
-            if (type != node.attributes.end() && lower(type->second) == "password") {
-                ++document.password_count;
-            }
-        }
-        for (const auto& child : node.children) {
-            walk(*child, document);
-        }
-    }
-
-    static std::string collect_text(const Node& node) {
-        if (node.name == "#text") {
-            return node.text;
-        }
-        std::string text;
-        for (const auto& child : node.children) {
-            const std::string child_text = collect_text(*child);
-            if (!child_text.empty()) {
-                if (!text.empty()) {
-                    text.push_back(' ');
-                }
-                text += child_text;
-            }
-        }
-        return collapse_space(text);
-    }
-};
-
-class LayoutEngine {
-public:
-    std::vector<std::string> layout(const Document& document, size_t width = 100) const {
-        std::vector<std::string> lines;
-        emit_node(*document.root, lines, 0, width);
-        if (lines.empty()) {
-            lines.push_back("(This page did not expose readable text.)");
-        }
-        return lines;
-    }
-
-private:
-    static bool block_element(const std::string& name) {
-        static const std::vector<std::string> blocks = {"body", "main", "article", "section", "header", "footer", "div", "p", "li", "h1", "h2", "h3", "h4", "ul", "ol", "table", "tr"};
-        return std::find(blocks.begin(), blocks.end(), name) != blocks.end();
-    }
-
-    static void emit_wrapped(const std::string& text, std::vector<std::string>& lines, size_t indent, size_t width) {
-        std::istringstream words(text);
-        std::string word;
-        std::string line(indent, ' ');
-        while (words >> word) {
-            if (line.size() + word.size() + 1 > width && line.size() > indent) {
-                lines.push_back(line);
-                line = std::string(indent, ' ');
-            }
-            if (line.size() > indent) {
-                line.push_back(' ');
-            }
-            line += word;
-        }
-        if (line.size() > indent) {
-            lines.push_back(line);
-        }
-    }
-
-    static void emit_node(const Node& node, std::vector<std::string>& lines, size_t indent, size_t width) {
-        if (node.name == "#text") {
-            emit_wrapped(node.text, lines, indent, width);
-            return;
-        }
-        if (node.name == "script" || node.name == "style" || node.name == "head" || node.name == "noscript") {
-            return;
-        }
-        if (node.name == "h1" || node.name == "h2") {
-            lines.push_back("");
-        }
-        for (const auto& child : node.children) {
-            emit_node(*child, lines, node.name == "li" ? indent + 2 : indent, width);
-        }
-        if (block_element(node.name)) {
-            lines.push_back("");
-        }
-    }
-};
-
-enum class SafetyState { Safe, Warning, Risky, Unknown };
-
-struct SafetyResult {
-    SafetyState state = SafetyState::Unknown;
-    std::vector<std::string> findings;
-};
-
-class SafetyScanner {
-public:
-    SafetyResult scan(const Document& document) const {
-        SafetyResult result;
-        const std::string host = host_from_url(document.url);
-        if (!starts_with(document.url, "https://")) {
-            result.findings.push_back("HIGH: connection is not HTTPS");
-        }
-        if (document.url.find('@') != std::string::npos) {
-            result.findings.push_back("HIGH: URL contains @");
-        }
-        if (host.find("xn--") != std::string::npos) {
-            result.findings.push_back("MEDIUM: internationalized domain may hide lookalike characters");
-        }
-        if (document.password_count > 0 && !starts_with(document.url, "https://")) {
-            result.findings.push_back("CRITICAL: password input on insecure page");
-        }
-        if (document.iframe_count > 0) {
-            result.findings.push_back("LOW: embedded frames found");
-        }
-        if (document.script_count > 30) {
-            result.findings.push_back("LOW: heavy script usage");
-        }
-
-        bool risky = false;
-        bool warning = false;
-        for (const std::string& finding : result.findings) {
-            if (starts_with(finding, "CRITICAL") || starts_with(finding, "HIGH") || starts_with(finding, "MEDIUM")) {
-                risky = true;
-            }
-            if (starts_with(finding, "LOW")) {
-                warning = true;
-            }
-        }
-        result.state = risky ? SafetyState::Risky : warning ? SafetyState::Warning : SafetyState::Safe;
-        return result;
-    }
-};
-
-std::string badge(SafetyState state) {
-    switch (state) {
-        case SafetyState::Safe:
-            return "[TICK] SAFE";
-        case SafetyState::Warning:
-            return "[!] CHECK";
-        case SafetyState::Risky:
-            return "[X] RISK";
-        case SafetyState::Unknown:
-            return "[?] UNKNOWN";
-    }
-    return "[?] UNKNOWN";
 }
 
-COLORREF rgb(int r, int g, int b) {
-    return RGB(r, g, b);
+std::wstring NormalizeUrl(std::wstring text) {
+    while (!text.empty() && iswspace(text.front())) text.erase(text.begin());
+    while (!text.empty() && iswspace(text.back())) text.pop_back();
+    if (text.empty()) return kHomeUrl;
+    if (text.rfind(L"http://", 0) == 0 || text.rfind(L"https://", 0) == 0) return text;
+    if (text.find(L'.') != std::wstring::npos && text.find(L' ') == std::wstring::npos) return L"https://" + text;
+    for (auto& ch : text) {
+        if (ch == L' ') ch = L'+';
+    }
+    return L"https://www.google.com/search?q=" + text;
 }
 
-std::wstring widen(const std::string& value) {
-    if (value.empty()) {
-        return L"";
-    }
-    const int size = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, nullptr, 0);
-    if (size <= 0) {
-        return L"";
-    }
-    std::wstring wide(static_cast<size_t>(size - 1), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, wide.data(), size);
-    return wide;
-}
-
-std::string narrow(const std::wstring& value) {
-    if (value.empty()) {
-        return "";
-    }
-    const int size = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    if (size <= 0) {
-        return "";
-    }
-    std::string text(static_cast<size_t>(size - 1), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, text.data(), size, nullptr, nullptr);
-    return text;
-}
-
-void fill_rect(HDC dc, const RECT& rect, COLORREF color) {
+void Fill(HDC dc, RECT r, COLORREF color) {
     HBRUSH brush = CreateSolidBrush(color);
-    FillRect(dc, &rect, brush);
+    FillRect(dc, &r, brush);
     DeleteObject(brush);
 }
 
-void draw_text(HDC dc, const std::string& text, RECT rect, COLORREF color, UINT format, int size = 16, int weight = FW_NORMAL) {
+void Text(HDC dc, const std::wstring& text, RECT r, COLORREF color, int size = 16, int weight = FW_NORMAL, UINT format = DT_CENTER | DT_VCENTER | DT_SINGLELINE) {
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, color);
-    HFONT font = CreateFontA(size, 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, "Segoe UI");
-    HGDIOBJ old_font = SelectObject(dc, font);
-    const std::wstring wide = widen(text);
-    DrawTextW(dc, wide.c_str(), -1, &rect, format);
-    SelectObject(dc, old_font);
+    HFONT font = CreateFontW(size, 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    auto old = SelectObject(dc, font);
+    DrawTextW(dc, text.c_str(), -1, &r, format);
+    SelectObject(dc, old);
     DeleteObject(font);
 }
 
-void draw_button(HDC dc, const RECT& rect, const std::string& label, COLORREF bg, COLORREF fg, bool active = false) {
-    fill_rect(dc, rect, bg);
-    if (active) {
-        HPEN pen = CreatePen(PS_SOLID, 2, fg);
-        HGDIOBJ old = SelectObject(dc, pen);
-        MoveToEx(dc, rect.left, rect.bottom - 2, nullptr);
-        LineTo(dc, rect.right, rect.bottom - 2);
-        SelectObject(dc, old);
-        DeleteObject(pen);
-    }
-    RECT text_rect = rect;
-    draw_text(dc, label, text_rect, fg, DT_CENTER | DT_VCENTER | DT_SINGLELINE, 15, FW_SEMIBOLD);
-}
-
-void draw_line_icon(HDC dc, const RECT& rect, COLORREF color, int kind) {
+void LineIcon(HDC dc, RECT r, COLORREF color, int kind) {
     HPEN pen = CreatePen(PS_SOLID, 2, color);
-    HBRUSH hollow = reinterpret_cast<HBRUSH>(GetStockObject(HOLLOW_BRUSH));
-    HGDIOBJ old_pen = SelectObject(dc, pen);
-    HGDIOBJ old_brush = SelectObject(dc, hollow);
-    const int cx = (rect.left + rect.right) / 2;
-    const int cy = (rect.top + rect.bottom) / 2;
-    const int w = rect.right - rect.left;
-    const int h = rect.bottom - rect.top;
+    auto oldPen = SelectObject(dc, pen);
+    auto oldBrush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
+    int cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
     switch (kind) {
-        case 0:  // home/orbit
-            Ellipse(dc, cx - 10, cy - 10, cx + 10, cy + 10);
-            MoveToEx(dc, cx - 5, cy + 7, nullptr); LineTo(dc, cx + 10, cy - 8);
-            break;
-        case 1:  // shield
-            MoveToEx(dc, cx, cy - 12, nullptr); LineTo(dc, cx + 11, cy - 7); LineTo(dc, cx + 8, cy + 8); LineTo(dc, cx, cy + 14); LineTo(dc, cx - 8, cy + 8); LineTo(dc, cx - 11, cy - 7); LineTo(dc, cx, cy - 12);
-            break;
-        case 2:  // link
-            Arc(dc, cx - 16, cy - 8, cx + 2, cy + 10, cx - 11, cy - 6, cx - 3, cy + 8);
-            Arc(dc, cx - 2, cy - 10, cx + 16, cy + 8, cx + 11, cy + 6, cx + 3, cy - 8);
-            MoveToEx(dc, cx - 6, cy + 4, nullptr); LineTo(dc, cx + 6, cy - 4);
-            break;
-        case 3:  // history
-            Arc(dc, cx - 12, cy - 12, cx + 12, cy + 12, cx - 9, cy - 8, cx - 12, cy + 1);
-            MoveToEx(dc, cx - 11, cy - 8, nullptr); LineTo(dc, cx - 17, cy - 8); LineTo(dc, cx - 13, cy - 13);
-            MoveToEx(dc, cx, cy - 7, nullptr); LineTo(dc, cx, cy); LineTo(dc, cx + 7, cy + 5);
-            break;
-        case 4:  // extension puzzle
-            Rectangle(dc, cx - 11, cy - 8, cx + 11, cy + 11);
-            Ellipse(dc, cx - 4, cy - 15, cx + 4, cy - 7);
-            Rectangle(dc, cx + 8, cy - 2, cx + 15, cy + 5);
-            break;
-        case 5:  // settings gear-ish
-            Ellipse(dc, cx - 8, cy - 8, cx + 8, cy + 8);
-            Ellipse(dc, cx - 3, cy - 3, cx + 3, cy + 3);
-            for (int i = 0; i < 8; ++i) {
-                double a = i * 3.14159 / 4.0;
-                MoveToEx(dc, cx + static_cast<int>(std::cos(a) * 10), cy + static_cast<int>(std::sin(a) * 10), nullptr);
-                LineTo(dc, cx + static_cast<int>(std::cos(a) * 14), cy + static_cast<int>(std::sin(a) * 14));
-            }
-            break;
-        case 6:  // palette/theme
-            Ellipse(dc, cx - 13, cy - 10, cx + 13, cy + 12);
-            Ellipse(dc, cx - 6, cy - 4, cx - 2, cy); Ellipse(dc, cx + 2, cy - 5, cx + 6, cy - 1); Ellipse(dc, cx - 1, cy + 3, cx + 3, cy + 7);
-            break;
-        case 7:  // ChatGPT-style knot
-            for (int i = 0; i < 6; ++i) {
-                double a = i * 3.14159 / 3.0;
-                int x1 = cx + static_cast<int>(std::cos(a) * 5);
-                int y1 = cy + static_cast<int>(std::sin(a) * 5);
-                int x2 = cx + static_cast<int>(std::cos(a + 0.75) * 14);
-                int y2 = cy + static_cast<int>(std::sin(a + 0.75) * 14);
-                MoveToEx(dc, x1, y1, nullptr); LineTo(dc, x2, y2);
-                Ellipse(dc, x2 - 3, y2 - 3, x2 + 3, y2 + 3);
-            }
-            Ellipse(dc, cx - 5, cy - 5, cx + 5, cy + 5);
-            break;
-        case 8:  // WhatsApp-style chat bubble and phone
-            RoundRect(dc, cx - 13, cy - 11, cx + 13, cy + 10, 12, 12);
-            MoveToEx(dc, cx - 5, cy + 9, nullptr); LineTo(dc, cx - 12, cy + 15); LineTo(dc, cx - 9, cy + 6);
-            Arc(dc, cx - 6, cy - 6, cx + 7, cy + 8, cx - 2, cy - 5, cx + 6, cy + 2);
-            break;
-        case 9:  // Telegram-style paper plane
-            MoveToEx(dc, cx - 14, cy - 2, nullptr); LineTo(dc, cx + 14, cy - 13); LineTo(dc, cx + 5, cy + 14); LineTo(dc, cx - 2, cy + 4); LineTo(dc, cx - 14, cy - 2);
-            MoveToEx(dc, cx - 2, cy + 4, nullptr); LineTo(dc, cx + 14, cy - 13);
-            break;
-        case 10:  // Discord-style controller face
-            RoundRect(dc, cx - 15, cy - 10, cx + 15, cy + 10, 10, 10);
-            Ellipse(dc, cx - 8, cy - 3, cx - 4, cy + 1);
-            Ellipse(dc, cx + 4, cy - 3, cx + 8, cy + 1);
-            Arc(dc, cx - 8, cy - 2, cx + 8, cy + 10, cx - 5, cy + 5, cx + 5, cy + 5);
-            break;
-        default:  // menu
-            Ellipse(dc, cx - 10, cy - 2, cx - 6, cy + 2);
-            Ellipse(dc, cx - 2, cy - 2, cx + 2, cy + 2);
-            Ellipse(dc, cx + 6, cy - 2, cx + 10, cy + 2);
-            break;
+        case 0: Ellipse(dc, cx-11, cy-11, cx+11, cy+11); MoveToEx(dc,cx-5,cy+7,nullptr); LineTo(dc,cx+10,cy-8); break;
+        case 1: MoveToEx(dc,cx,cy-13,nullptr); LineTo(dc,cx+11,cy-7); LineTo(dc,cx+8,cy+9); LineTo(dc,cx,cy+14); LineTo(dc,cx-8,cy+9); LineTo(dc,cx-11,cy-7); LineTo(dc,cx,cy-13); break;
+        case 2: Arc(dc,cx-12,cy-12,cx+12,cy+12,cx-8,cy-8,cx-12,cy+1); MoveToEx(dc,cx,cy-7,nullptr); LineTo(dc,cx,cy); LineTo(dc,cx+7,cy+4); break;
+        case 3: Rectangle(dc,cx-11,cy-8,cx+11,cy+11); Ellipse(dc,cx-4,cy-15,cx+4,cy-7); break;
+        case 4: Ellipse(dc,cx-9,cy-9,cx+9,cy+9); Ellipse(dc,cx-3,cy-3,cx+3,cy+3); break;
+        case 5: Ellipse(dc,cx-13,cy-10,cx+13,cy+12); Ellipse(dc,cx-6,cy-4,cx-2,cy); Ellipse(dc,cx+3,cy-5,cx+7,cy-1); break;
+        case 6: for(int i=0;i<6;i++){ double a=i*3.14159/3.0; int x=cx+(int)(cos(a)*13), y=cy+(int)(sin(a)*13); MoveToEx(dc,cx,cy,nullptr); LineTo(dc,x,y); Ellipse(dc,x-3,y-3,x+3,y+3);} break;
+        case 7: RoundRect(dc,cx-13,cy-11,cx+13,cy+10,12,12); MoveToEx(dc,cx-5,cy+9,nullptr); LineTo(dc,cx-12,cy+15); Arc(dc,cx-6,cy-6,cx+7,cy+8,cx-2,cy-5,cx+6,cy+2); break;
+        case 8: MoveToEx(dc,cx-14,cy-2,nullptr); LineTo(dc,cx+14,cy-13); LineTo(dc,cx+5,cy+14); LineTo(dc,cx-2,cy+4); LineTo(dc,cx-14,cy-2); break;
+        case 9: RoundRect(dc,cx-15,cy-10,cx+15,cy+10,10,10); Ellipse(dc,cx-8,cy-3,cx-4,cy+1); Ellipse(dc,cx+4,cy-3,cx+8,cy+1); break;
+        case 10: Rectangle(dc,cx-12,cy-10,cx+12,cy+10); MoveToEx(dc,cx-5,cy-5,nullptr); LineTo(dc,cx-5,cy+5); MoveToEx(dc,cx+5,cy-5,nullptr); LineTo(dc,cx+5,cy+5); break;
+        default: Ellipse(dc,cx-10,cy-2,cx-6,cy+2); Ellipse(dc,cx-2,cy-2,cx+2,cy+2); Ellipse(dc,cx+6,cy-2,cx+10,cy+2); break;
     }
-    SelectObject(dc, old_brush);
-    SelectObject(dc, old_pen);
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
     DeleteObject(pen);
-    (void)w;
-    (void)h;
 }
 
-struct Theme {
-    std::string name;
-    COLORREF window;
-    COLORREF sidebar;
-    COLORREF topbar;
-    COLORREF tab;
-    COLORREF active_tab;
-    COLORREF page;
-    COLORREF panel;
-    COLORREF address;
-    COLORREF accent;
-    COLORREF text;
-    COLORREF muted;
-    COLORREF safe;
-    COLORREF warning;
-    COLORREF risk;
-};
-
-struct Page {
-    Document document;
-    SafetyResult safety;
-    std::vector<std::string> layout;
-};
-
-std::vector<Theme> themes() {
-    return {
-        {"Opera GX", rgb(7, 8, 14), rgb(3, 4, 8), rgb(14, 16, 25), rgb(28, 32, 48), rgb(38, 45, 70), rgb(10, 12, 18), rgb(18, 22, 35), rgb(4, 6, 12), rgb(54, 105, 255), rgb(245, 247, 255), rgb(150, 162, 195), rgb(23, 210, 126), rgb(245, 196, 66), rgb(255, 74, 105)},
-        {"GX Red", rgb(10, 7, 11), rgb(5, 3, 5), rgb(20, 13, 19), rgb(39, 25, 35), rgb(66, 35, 52), rgb(12, 10, 14), rgb(24, 18, 25), rgb(8, 5, 8), rgb(255, 45, 85), rgb(255, 245, 248), rgb(196, 148, 160), rgb(30, 215, 126), rgb(247, 190, 66), rgb(255, 65, 88)},
-        {"Neon Green", rgb(5, 10, 8), rgb(2, 6, 5), rgb(10, 19, 16), rgb(18, 39, 31), rgb(25, 62, 47), rgb(7, 13, 11), rgb(12, 24, 20), rgb(4, 9, 7), rgb(48, 230, 150), rgb(238, 255, 247), rgb(143, 188, 169), rgb(30, 230, 146), rgb(240, 201, 79), rgb(255, 75, 98)},
-        {"Chrome Light", rgb(246, 248, 252), rgb(235, 239, 247), rgb(246, 248, 252), rgb(225, 230, 239), rgb(255, 255, 255), rgb(255, 255, 255), rgb(243, 246, 251), rgb(255, 255, 255), rgb(26, 115, 232), rgb(32, 33, 36), rgb(95, 99, 104), rgb(24, 128, 56), rgb(176, 96, 0), rgb(217, 48, 37)},
-    };
-}
-
-struct BrowserTab {
-    std::string title = "New tab";
-    std::string url = google_search_url("browser from scratch");
-    Page page;
-    std::vector<std::string> history;
-    int history_index = -1;
-};
-
-enum class PanelMode { None, Safety, Extensions, Settings, History, Links };
-
-class OperaLikeWindow {
+class SpaceWindow {
 public:
-    int run(HINSTANCE instance, int show) {
-        instance_ = instance;
+    int Run(HINSTANCE hInstance, int show) {
+        hInst_ = hInstance;
         WNDCLASSW wc{};
-        wc.lpfnWndProc = &OperaLikeWindow::window_proc;
-        wc.hInstance = instance;
-        wc.lpszClassName = L"SpaceBrowserWindow";
+        wc.lpfnWndProc = WndProc;
+        wc.hInstance = hInstance;
+        wc.lpszClassName = L"SpaceChromiumShell";
         wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-        wc.hbrBackground = nullptr;
-        wc.hIcon = AppIcon::load_large();
+        wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_APP_ICON));
         RegisterClassW(&wc);
-
-        window_ = CreateWindowExW(
-            0,
-            wc.lpszClassName,
-            L"Space_",
-            WS_OVERLAPPEDWINDOW,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            1320,
-            840,
-            nullptr,
-            nullptr,
-            instance,
-            this);
-        if (!window_) {
-            return 1;
-        }
-        AppIcon::apply_to_window(window_);
-        create_controls();
-        ShowWindow(window_, show);
-        UpdateWindow(window_);
-        navigate(google_search_url("browser from scratch"));
-
+        hwnd_ = CreateWindowW(wc.lpszClassName, kAppName, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1460, 880, nullptr, nullptr, hInstance, this);
+        SendMessage(hwnd_, WM_SETICON, ICON_BIG, (LPARAM)LoadIcon(hInstance, MAKEINTRESOURCE(IDI_APP_ICON)));
+        SendMessage(hwnd_, WM_SETICON, ICON_SMALL, (LPARAM)LoadImage(hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR));
+        CreateControls();
+        ShowWindow(hwnd_, show);
+        UpdateWindow(hwnd_);
+        InitWebViews();
         MSG msg{};
         while (GetMessage(&msg, nullptr, 0, 0)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
-        return static_cast<int>(msg.wParam);
+        return (int)msg.wParam;
     }
 
 private:
-    static constexpr int kSidebarWidth = 62;
-    static constexpr int kTabHeight = 48;
-    static constexpr int kNavHeight = 56;
-    static constexpr int kPanelWidth = 330;
-
-    static LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-        OperaLikeWindow* self = nullptr;
-        if (message == WM_NCCREATE) {
-            auto* create = reinterpret_cast<CREATESTRUCT*>(lparam);
-            self = static_cast<OperaLikeWindow*>(create->lpCreateParams);
-            SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+    static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+        SpaceWindow* self = nullptr;
+        if (msg == WM_NCCREATE) {
+            self = (SpaceWindow*)((CREATESTRUCT*)lp)->lpCreateParams;
+            SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)self);
         } else {
-            self = reinterpret_cast<OperaLikeWindow*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
+            self = (SpaceWindow*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
         }
-        if (!self) {
-            return DefWindowProc(hwnd, message, wparam, lparam);
+        return self ? self->Handle(msg, wp, lp) : DefWindowProc(hwnd, msg, wp, lp);
+    }
+
+    LRESULT Handle(UINT msg, WPARAM wp, LPARAM lp) {
+        switch (msg) {
+            case WM_SIZE: Resize(); InvalidateRect(hwnd_, nullptr, TRUE); return 0;
+            case WM_COMMAND: OnCommand(LOWORD(wp)); return 0;
+            case WM_LBUTTONDOWN: OnClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
+            case WM_CTLCOLOREDIT: SetTextColor((HDC)wp, theme().text); SetBkColor((HDC)wp, theme().address); return (LRESULT)editBrush();
+            case WM_PAINT: Paint(); return 0;
+            case WM_DESTROY: PostQuitMessage(0); return 0;
         }
-        return self->handle(hwnd, message, wparam, lparam);
+        return DefWindowProc(hwnd_, msg, wp, lp);
     }
 
-    LRESULT handle(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-        switch (message) {
-            case WM_SIZE:
-                layout_controls();
-                InvalidateRect(hwnd, nullptr, TRUE);
-                return 0;
-            case WM_COMMAND:
-                if (reinterpret_cast<HWND>(lparam) == address_ && HIWORD(wparam) == EN_UPDATE) {
-                    return 0;
-                }
-                if (reinterpret_cast<HWND>(lparam) == address_ && HIWORD(wparam) == EN_KILLFOCUS) {
-                    return 0;
-                }
-                return 0;
-            case WM_KEYDOWN:
-                if (wparam == VK_RETURN && GetFocus() == address_) {
-                    navigate(address_text());
-                    return 0;
-                }
-                return 0;
-            case WM_CTLCOLOREDIT:
-                SetTextColor(reinterpret_cast<HDC>(wparam), theme().text);
-                SetBkColor(reinterpret_cast<HDC>(wparam), theme().address);
-                return reinterpret_cast<LRESULT>(edit_brush());
-            case WM_LBUTTONDOWN:
-                on_click(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
-                return 0;
-            case WM_PAINT:
-                paint();
-                return 0;
-            case WM_DESTROY:
-                PostQuitMessage(0);
-                return 0;
-        }
-        return DefWindowProc(hwnd, message, wparam, lparam);
+    Theme theme() const { return Themes()[theme_ % Themes().size()]; }
+
+    void CreateControls() {
+        address_ = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 100, 28, hwnd_, (HMENU)100, hInst_, nullptr);
+        auto font = CreateFontW(18,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
+        SendMessage(address_, WM_SETFONT, (WPARAM)font, TRUE);
+        SetWindowLongPtr(address_, GWLP_USERDATA, (LONG_PTR)this);
+        oldAddressProc_ = (WNDPROC)SetWindowLongPtr(address_, GWLP_WNDPROC, (LONG_PTR)AddressProc);
+        for (int i=0;i<6;i++) buttons_[i] = CreateWindowW(L"BUTTON", L"", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0,0,10,10, hwnd_, (HMENU)(200+i), hInst_, nullptr);
+        SetWindowTextW(buttons_[0], L"<"); SetWindowTextW(buttons_[1], L">"); SetWindowTextW(buttons_[2], L"R"); SetWindowTextW(buttons_[3], L"Home"); SetWindowTextW(buttons_[4], L"Tick"); SetWindowTextW(buttons_[5], L"Go");
     }
 
-    void create_controls() {
-        address_ = CreateWindowExW(
-            0,
-            L"EDIT",
-            L"",
-            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-            0,
-            0,
-            100,
-            28,
-            window_,
-            reinterpret_cast<HMENU>(1001),
-            instance_,
-            nullptr);
-        HFONT font = CreateFontA(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, "Segoe UI");
-        SendMessage(address_, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        tabs_.push_back(BrowserTab{});
-        active_tab_ = 0;
-        layout_controls();
-    }
-
-    void layout_controls() {
-        RECT client{};
-        GetClientRect(window_, &client);
-        const int panel = panel_ == PanelMode::None ? 0 : kPanelWidth;
-        MoveWindow(
-            address_,
-            kSidebarWidth + 320,
-            kTabHeight + 12,
-            std::max(240, static_cast<int>(client.right) - kSidebarWidth - panel - 405),
-            32,
-            TRUE);
-    }
-
-    HBRUSH edit_brush() {
-        static HBRUSH brush = nullptr;
-        if (brush) {
-            DeleteObject(brush);
-        }
-        brush = CreateSolidBrush(theme().address);
-        return brush;
-    }
-
-    std::string address_text() const {
-        int length = GetWindowTextLengthW(address_);
-        std::wstring text(static_cast<size_t>(length), L'\0');
-        GetWindowTextW(address_, text.data(), length + 1);
-        return narrow(text);
-    }
-
-    void set_address(const std::string& text) {
-        SetWindowTextW(address_, widen(text).c_str());
-    }
-
-    Theme theme() const {
-        return themes()[theme_index_ % themes().size()];
-    }
-
-    BrowserTab& active() {
-        return tabs_[active_tab_];
-    }
-
-    void navigate(const std::string& input, bool add_history = true) {
-        BrowserTab& tab = active();
-        const std::string url = normalize_input(input);
-        tab.url = url;
-        tab.title = "Loading...";
-        set_address(url);
-        InvalidateRect(window_, nullptr, TRUE);
-        try {
-            HttpResponse response = network_.get(url);
-            tab.page.document = loader_.load(url, response.body);
-            tab.page.safety = scanner_.scan(tab.page.document);
-            tab.page.layout = layout_.layout(tab.page.document, 110);
-            tab.title = tab.page.document.title.empty() ? "Untitled" : tab.page.document.title;
-        } catch (const std::exception& error) {
-            tab.page = {};
-            tab.page.document.url = url;
-            tab.page.document.title = "Load failed";
-            tab.page.safety.state = SafetyState::Risky;
-            tab.page.safety.findings.push_back(std::string("HIGH: load failed: ") + error.what());
-            tab.page.layout = {error.what()};
-            tab.title = "Load failed";
-        }
-        if (add_history) {
-            tab.history.resize(static_cast<size_t>(tab.history_index + 1));
-            tab.history.push_back(url);
-            tab.history_index = static_cast<int>(tab.history.size()) - 1;
-        }
-        SetWindowTextW(window_, widen("Space_ - " + tab.title).c_str());
-        InvalidateRect(window_, nullptr, TRUE);
-    }
-
-    void back() {
-        BrowserTab& tab = active();
-        if (tab.history_index > 0) {
-            --tab.history_index;
-            navigate(tab.history[tab.history_index], false);
-        }
-    }
-
-    void forward() {
-        BrowserTab& tab = active();
-        if (tab.history_index < static_cast<int>(tab.history.size()) - 1) {
-            ++tab.history_index;
-            navigate(tab.history[tab.history_index], false);
-        }
-    }
-
-    void new_tab() {
-        tabs_.push_back(BrowserTab{});
-        active_tab_ = tabs_.size() - 1;
-        navigate(google_search_url("browser from scratch"));
-    }
-
-    void on_click(int x, int y) {
-        if (panel_ != PanelMode::None && hit(x, y, panel_close_rect())) {
-            panel_ = PanelMode::None;
-            layout_controls();
-            InvalidateRect(window_, nullptr, TRUE);
+    void InitWebViews() {
+        LPWSTR version = nullptr;
+        if (FAILED(GetAvailableCoreWebView2BrowserVersionString(nullptr, &version))) {
+            if (MessageBoxW(hwnd_, L"Space_ needs the Microsoft Edge WebView2 Runtime to display modern websites. Open the Microsoft download page now?", kAppName, MB_ICONINFORMATION | MB_YESNO) == IDYES) {
+                ShellExecuteW(hwnd_, L"open", L"https://developer.microsoft.com/microsoft-edge/webview2/", nullptr, nullptr, SW_SHOWNORMAL);
+            }
             return;
         }
-        if (panel_ != PanelMode::None && handle_panel_click(x, y)) {
-            layout_controls();
-            InvalidateRect(window_, nullptr, TRUE);
-            return;
-        }
-        if (x < kSidebarWidth) {
-            const int item = y / 40;
-            switch (item) {
-                case 0:
-                    navigate(google_search_url("browser from scratch"));
-                    break;
-                case 1:
-                    toggle_panel(PanelMode::Safety);
-                    break;
-                case 2:
-                    toggle_panel(PanelMode::Links);
-                    break;
-                case 3:
-                    toggle_panel(PanelMode::History);
-                    break;
-                case 4:
-                    toggle_panel(PanelMode::Extensions);
-                    break;
-                case 5:
-                    toggle_panel(PanelMode::Settings);
-                    break;
-                case 6:
-                    theme_index_ = (theme_index_ + 1) % themes().size();
-                    break;
-                case 7:
-                    navigate("https://chat.openai.com/");
-                    break;
-                case 8:
-                    navigate("https://web.whatsapp.com/");
-                    break;
-                case 9:
-                    navigate("https://web.telegram.org/");
-                    break;
-                case 10:
-                    navigate("https://discord.com/app");
-                    break;
-                default:
-                    toggle_panel(PanelMode::Safety);
-                    break;
-            }
-            layout_controls();
-            InvalidateRect(window_, nullptr, TRUE);
-            return;
-        }
-        if (y < kTabHeight) {
-            const int tab_start = kSidebarWidth + 12;
-            const int index = (x - tab_start) / 150;
-            if (index >= 0 && index < static_cast<int>(tabs_.size())) {
-                active_tab_ = static_cast<size_t>(index);
-                set_address(active().url);
-                InvalidateRect(window_, nullptr, TRUE);
-                return;
-            }
-            if (x > tab_start + static_cast<int>(tabs_.size()) * 150 && x < tab_start + static_cast<int>(tabs_.size()) * 150 + 42) {
-                new_tab();
-                return;
-            }
-        }
-        if (y >= kTabHeight && y < kTabHeight + kNavHeight) {
-            if (hit(x, y, back_rect())) back();
-            else if (hit(x, y, forward_rect())) forward();
-            else if (hit(x, y, reload_rect())) navigate(active().url, false);
-            else if (hit(x, y, home_rect())) navigate(google_search_url("browser from scratch"));
-            else if (hit(x, y, go_rect())) navigate(address_text());
-        }
-    }
+        if (version) CoTaskMemFree(version);
 
-    bool hit(int x, int y, const RECT& rect) const {
-        return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-    }
-
-    void toggle_panel(PanelMode mode) {
-        panel_ = panel_ == mode ? PanelMode::None : mode;
-    }
-
-    RECT panel_rect() const {
-        RECT client{};
-        GetClientRect(window_, &client);
-        return {client.right - kPanelWidth, kTabHeight + kNavHeight, client.right, client.bottom};
-    }
-
-    RECT panel_close_rect() const {
-        RECT panel = panel_rect();
-        return {panel.right - 42, panel.top + 16, panel.right - 14, panel.top + 44};
-    }
-
-    RECT panel_primary_button_rect() const {
-        RECT panel = panel_rect();
-        return {panel.left + 18, panel.top + 70, panel.right - 18, panel.top + 104};
-    }
-
-    RECT panel_secondary_button_rect() const {
-        RECT panel = panel_rect();
-        return {panel.left + 18, panel.top + 112, panel.right - 18, panel.top + 146};
-    }
-
-    bool handle_panel_click(int x, int y) {
-        RECT panel = panel_rect();
-        if (!hit(x, y, panel)) {
-            return false;
-        }
-        if (panel_ == PanelMode::Settings) {
-            if (hit(x, y, panel_primary_button_rect())) {
-                theme_index_ = (theme_index_ + 1) % themes().size();
-                return true;
-            }
-            if (hit(x, y, panel_secondary_button_rect())) {
-                panel_ = PanelMode::None;
-                return true;
-            }
-        }
-        if (panel_ == PanelMode::History) {
-            if (hit(x, y, panel_primary_button_rect())) {
-                active().history.clear();
-                active().history_index = -1;
-                return true;
-            }
-            const int row_start = panel.top + 118;
-            const int row_height = 34;
-            const int index = (y - row_start) / row_height;
-            BrowserTab& tab = active();
-            if (index >= 0 && index < static_cast<int>(tab.history.size())) {
-                RECT delete_box{panel.right - 44, row_start + index * row_height + 5, panel.right - 18, row_start + index * row_height + 29};
-                if (hit(x, y, delete_box)) {
-                    tab.history.erase(tab.history.begin() + index);
-                    if (tab.history.empty()) {
-                        tab.history_index = -1;
-                    } else if (tab.history_index >= static_cast<int>(tab.history.size())) {
-                        tab.history_index = static_cast<int>(tab.history.size()) - 1;
+        HRESULT create = CreateCoreWebView2EnvironmentWithOptions(nullptr, L".space_webview", nullptr,
+            Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+                [this](HRESULT hr, ICoreWebView2Environment* env) -> HRESULT {
+                    if (FAILED(hr)) {
+                        MessageBoxW(hwnd_, L"Space_ could not start the WebView2 browser engine.", kAppName, MB_ICONERROR);
+                        return hr;
                     }
-                    return true;
-                }
-                navigate(tab.history[static_cast<size_t>(index)], false);
-                tab.history_index = index;
-                return true;
-            }
-        }
-        if (panel_ == PanelMode::Links) {
-            const int row_start = panel.top + 68;
-            const int row_height = 42;
-            const int index = (y - row_start) / row_height;
-            const auto& links = active().page.document.links;
-            if (index >= 0 && index < static_cast<int>(links.size())) {
-                navigate(links[static_cast<size_t>(index)].second);
-                return true;
-            }
-        }
-        return true;
-    }
-
-    RECT back_rect() const { return {kSidebarWidth + 16, kTabHeight + 10, kSidebarWidth + 58, kTabHeight + 44}; }
-    RECT forward_rect() const { return {kSidebarWidth + 64, kTabHeight + 10, kSidebarWidth + 106, kTabHeight + 44}; }
-    RECT reload_rect() const { return {kSidebarWidth + 112, kTabHeight + 10, kSidebarWidth + 154, kTabHeight + 44}; }
-    RECT home_rect() const { return {kSidebarWidth + 160, kTabHeight + 10, kSidebarWidth + 230, kTabHeight + 44}; }
-    RECT badge_rect() const { return {kSidebarWidth + 238, kTabHeight + 10, kSidebarWidth + 312, kTabHeight + 44}; }
-    RECT go_rect() const {
-        RECT client{};
-        GetClientRect(window_, &client);
-        const int panel = panel_ == PanelMode::None ? 0 : kPanelWidth;
-        return {client.right - panel - 62, kTabHeight + 10, client.right - panel - 14, kTabHeight + 44};
-    }
-
-    void paint() {
-        PAINTSTRUCT ps{};
-        HDC dc = BeginPaint(window_, &ps);
-        RECT client{};
-        GetClientRect(window_, &client);
-        Theme t = theme();
-        fill_rect(dc, client, t.window);
-        paint_sidebar(dc, client, t);
-        paint_tabs(dc, client, t);
-        paint_nav(dc, client, t);
-        paint_page(dc, client, t);
-        if (panel_ != PanelMode::None) {
-            paint_panel(dc, client, t);
-        }
-        EndPaint(window_, &ps);
-    }
-
-    void paint_sidebar(HDC dc, const RECT& client, const Theme& t) {
-        RECT sidebar{0, 0, kSidebarWidth, client.bottom};
-        fill_rect(dc, sidebar, t.sidebar);
-        for (size_t i = 0; i < 12; ++i) {
-            RECT r{10, static_cast<LONG>(12 + i * 40), kSidebarWidth - 10, static_cast<LONG>(44 + i * 40)};
-            const bool active =
-                (i == 1 && panel_ == PanelMode::Safety) ||
-                (i == 2 && panel_ == PanelMode::Links) ||
-                (i == 3 && panel_ == PanelMode::History) ||
-                (i == 4 && panel_ == PanelMode::Extensions) ||
-                (i == 5 && panel_ == PanelMode::Settings);
-            if (active) {
-                fill_rect(dc, r, t.tab);
-            }
-            draw_line_icon(dc, r, active ? t.text : t.accent, static_cast<int>(i));
-        }
-        RECT brand{8, client.bottom - 42, kSidebarWidth - 8, client.bottom - 10};
-        draw_text(dc, "S_", brand, t.accent, DT_CENTER | DT_VCENTER | DT_SINGLELINE, 13, FW_BOLD);
-    }
-
-    void paint_tabs(HDC dc, const RECT& client, const Theme& t) {
-        RECT top{kSidebarWidth, 0, client.right, kTabHeight};
-        fill_rect(dc, top, t.topbar);
-        int x = kSidebarWidth + 12;
-        for (size_t i = 0; i < tabs_.size(); ++i) {
-            RECT tab{x, 8, x + 140, 42};
-            draw_button(dc, tab, tabs_[i].title.substr(0, 18), i == active_tab_ ? t.active_tab : t.tab, t.text, i == active_tab_);
-            x += 150;
-        }
-        RECT add{x, 8, x + 38, 42};
-        draw_button(dc, add, "+", t.tab, t.text, false);
-    }
-
-    void paint_nav(HDC dc, const RECT& client, const Theme& t) {
-        RECT nav{kSidebarWidth, kTabHeight, client.right, kTabHeight + kNavHeight};
-        fill_rect(dc, nav, t.topbar);
-        draw_button(dc, back_rect(), "<", t.topbar, t.text);
-        draw_button(dc, forward_rect(), ">", t.topbar, t.text);
-        draw_button(dc, reload_rect(), "R", t.topbar, t.text);
-        draw_button(dc, home_rect(), "Home", t.topbar, t.text);
-        const SafetyState state = active().page.safety.state;
-        COLORREF badge_color = state == SafetyState::Safe ? t.safe : state == SafetyState::Warning ? t.warning : state == SafetyState::Risky ? t.risk : t.muted;
-        draw_button(dc, badge_rect(), state == SafetyState::Safe ? "Tick" : state == SafetyState::Risky ? "Risk" : "Check", badge_color, RGB(255, 255, 255));
-        draw_button(dc, go_rect(), "Go", t.topbar, t.text);
-    }
-
-    void paint_page(HDC dc, const RECT& client, const Theme& t) {
-        const int panel = panel_ == PanelMode::None ? 0 : kPanelWidth;
-        RECT page{kSidebarWidth, kTabHeight + kNavHeight, client.right - panel, client.bottom};
-        fill_rect(dc, page, t.page);
-        RECT title{page.left + 24, page.top + 22, page.right - 24, page.top + 56};
-        draw_text(dc, active().page.document.title, title, t.text, DT_LEFT | DT_SINGLELINE | DT_VCENTER, 24, FW_BOLD);
-        int y = page.top + 72;
-        for (const auto& line : active().page.layout) {
-            if (y > page.bottom - 24) break;
-            if (!line.empty()) {
-                RECT r{page.left + 26, y, page.right - 28, y + 24};
-                draw_text(dc, line, r, t.text, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS, 17);
-                y += 24;
-            } else {
-                y += 8;
-            }
+                    env_ = env;
+                    CreateMainWebView();
+                    CreateSideWebView();
+                    return S_OK;
+                }).Get());
+        if (FAILED(create)) {
+            MessageBoxW(hwnd_, L"Space_ could not create the WebView2 browser environment.", kAppName, MB_ICONERROR);
         }
     }
 
-    void paint_panel(HDC dc, const RECT& client, const Theme& t) {
-        RECT panel{client.right - kPanelWidth, kTabHeight + kNavHeight, client.right, client.bottom};
-        fill_rect(dc, panel, t.panel);
-        std::string title = "Safety";
-        std::vector<std::string> lines;
-        if (panel_ == PanelMode::Extensions) {
-            title = "Extensions";
-            lines = {"Built-in safety scanner", "Theme manager", "Sidebar launcher", "Social shortcuts", "ChatGPT, WhatsApp, Telegram, Discord", "Extension API coming next"};
-        } else if (panel_ == PanelMode::Settings) {
-            title = "Settings";
-            lines = {"Theme: " + theme().name, "Executable icon: assets/app.ico", "Engine: custom C++ base", "Renderer: custom DOM/layout prototype"};
-        } else if (panel_ == PanelMode::History) {
-            title = "History";
-            lines = active().history;
-        } else if (panel_ == PanelMode::Links) {
-            title = "Links";
-            for (const auto& link : active().page.document.links) {
-                lines.push_back(link.first + " -> " + link.second);
-                if (lines.size() > 20) break;
-            }
-        } else {
-            lines.push_back("Verification: " + badge(active().page.safety.state));
-            if (active().page.safety.findings.empty()) lines.push_back("No obvious risk detected.");
-            for (const auto& finding : active().page.safety.findings) lines.push_back(finding);
+    void CreateMainWebView() {
+        env_->CreateCoreWebView2Controller(hwnd_,
+            Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+                [this](HRESULT hr, ICoreWebView2Controller* controller) -> HRESULT {
+                    if (FAILED(hr)) return hr;
+                    mainController_ = controller;
+                    mainController_->get_CoreWebView2(&mainWeb_);
+                    EventRegistrationToken token{};
+                    mainWeb_->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>(
+                        [this](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+                            BOOL ok = FALSE; args->get_IsSuccess(&ok); safetyRisk_ = !ok; UpdateAddressFromMain(); InvalidateRect(hwnd_, nullptr, TRUE); return S_OK;
+                        }).Get(), &token);
+                    mainWeb_->add_SourceChanged(Callback<ICoreWebView2SourceChangedEventHandler>(
+                        [this](ICoreWebView2*, ICoreWebView2SourceChangedEventArgs*) -> HRESULT { UpdateAddressFromMain(); return S_OK; }).Get(), &token);
+                    mainWeb_->Navigate(kHomeUrl);
+                    Resize();
+                    return S_OK;
+                }).Get());
+    }
+
+    void CreateSideWebView() {
+        env_->CreateCoreWebView2Controller(hwnd_,
+            Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+                [this](HRESULT hr, ICoreWebView2Controller* controller) -> HRESULT {
+                    if (FAILED(hr)) return hr;
+                    sideController_ = controller;
+                    sideController_->get_CoreWebView2(&sideWeb_);
+                    sideController_->put_IsVisible(FALSE);
+                    Resize();
+                    return S_OK;
+                }).Get());
+    }
+
+    void Resize() {
+        RECT c{}; GetClientRect(hwnd_, &c);
+        int sideW = sideVisible_ ? kSidePanel : 0;
+        MoveWindow(address_, kSidebar + sideW + 320, 54, std::max(260, c.right - kSidebar - sideW - 410), 32, TRUE);
+        for (int i=0;i<6;i++) MoveWindow(buttons_[i], 0, 0, 1, 1, TRUE);
+        if (mainController_) {
+            RECT bounds{kSidebar + sideW, kTopbar, c.right, c.bottom};
+            mainController_->put_Bounds(bounds);
+            mainController_->put_IsVisible(TRUE);
         }
-        RECT heading{panel.left + 18, panel.top + 18, panel.right - 18, panel.top + 52};
-        draw_text(dc, title, heading, t.text, DT_LEFT | DT_SINGLELINE | DT_VCENTER, 22, FW_BOLD);
-        draw_button(dc, panel_close_rect(), "X", t.tab, t.text);
-        if (panel_ == PanelMode::Settings) {
-            draw_button(dc, panel_primary_button_rect(), "Cycle theme: " + theme().name, t.active_tab, t.text);
-            draw_button(dc, panel_secondary_button_rect(), "Hide side panel", t.tab, t.text);
-            int y = panel.top + 164;
-            for (const auto& line : lines) {
-                RECT row{panel.left + 18, y, panel.right - 18, y + 42};
-                draw_text(dc, line, row, t.text, DT_LEFT | DT_WORDBREAK, 16);
-                y += 48;
-            }
-            return;
-        }
-        if (panel_ == PanelMode::History) {
-            draw_button(dc, panel_primary_button_rect(), "Clear full history", t.risk, RGB(255, 255, 255));
-            int y = panel.top + 118;
-            if (active().history.empty()) {
-                RECT empty{panel.left + 18, y, panel.right - 18, y + 42};
-                draw_text(dc, "No history yet.", empty, t.muted, DT_LEFT | DT_SINGLELINE | DT_VCENTER, 16);
-                return;
-            }
-            for (size_t i = 0; i < active().history.size(); ++i) {
-                RECT row{panel.left + 18, y, panel.right - 52, y + 30};
-                draw_text(dc, active().history[i], row, t.text, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS, 15);
-                RECT del{panel.right - 44, y + 5, panel.right - 18, y + 29};
-                draw_button(dc, del, "X", t.tab, t.risk);
-                y += 34;
-                if (y > panel.bottom - 20) break;
-            }
-            return;
-        }
-        int y = panel.top + 66;
-        for (const auto& line : lines) {
-            RECT row{panel.left + 18, y, panel.right - 18, y + 48};
-            draw_text(dc, line, row, t.text, DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS, 16);
-            y += 52;
-            if (y > panel.bottom - 20) break;
+        if (sideController_) {
+            RECT bounds{kSidebar + 10, 58, kSidebar + kSidePanel - 10, c.bottom - 12};
+            sideController_->put_Bounds(bounds);
+            sideController_->put_IsVisible(sideVisible_);
         }
     }
 
-    HINSTANCE instance_ = nullptr;
-    HWND window_ = nullptr;
-    HWND address_ = nullptr;
-    NetworkService network_;
-    DocumentLoader loader_;
-    LayoutEngine layout_;
-    SafetyScanner scanner_;
-    std::vector<BrowserTab> tabs_;
-    size_t active_tab_ = 0;
-    size_t theme_index_ = 0;
-    PanelMode panel_ = PanelMode::None;
+    void OnCommand(int id) {
+        if (!mainWeb_) return;
+        if (id == 200) mainWeb_->GoBack();
+        if (id == 201) mainWeb_->GoForward();
+        if (id == 202) mainWeb_->Reload();
+        if (id == 203) mainWeb_->Navigate(kHomeUrl);
+        if (id == 205) NavigateAddress();
+    }
+
+    void NavigateAddress() {
+        wchar_t buffer[4096]{};
+        GetWindowTextW(address_, buffer, 4095);
+        std::wstring url = NormalizeUrl(buffer);
+        mainWeb_->Navigate(url.c_str());
+    }
+
+    void UpdateAddressFromMain() {
+        if (!mainWeb_) return;
+        LPWSTR uri = nullptr;
+        if (SUCCEEDED(mainWeb_->get_Source(&uri)) && uri) {
+            SetWindowTextW(address_, uri);
+            safetyRisk_ = wcsncmp(uri, L"https://", 8) != 0;
+            CoTaskMemFree(uri);
+        }
+    }
+
+    void OnClick(int x, int y) {
+        if (x < kSidebar) {
+            int item = y / 40;
+            switch(item) {
+                case 0: if(mainWeb_) mainWeb_->Navigate(kHomeUrl); break;
+                case 1: OpenSideHtml(L"GX CONTROL", ControlHtml()); break;
+                case 2: OpenSide(L"CHATGPT", L"https://chat.openai.com/"); break;
+                case 3: OpenSide(L"TWITCH", L"https://www.twitch.tv/"); break;
+                case 4: OpenSide(L"WHATSAPP", L"https://web.whatsapp.com/"); break;
+                case 5: OpenSide(L"DISCORD", L"https://discord.com/app"); break;
+                case 6: OpenSide(L"TELEGRAM", L"https://web.telegram.org/"); break;
+                case 7: OpenSide(L"PLAYER", L"https://music.youtube.com/"); break;
+                case 8: OpenSideHtml(L"HISTORY", HistoryHtml()); break;
+                case 9: OpenSideHtml(L"EXTENSIONS", ExtensionsHtml()); break;
+                case 10: OpenSideHtml(L"SETTINGS", SettingsHtml()); break;
+                case 11: theme_ = (theme_ + 1) % Themes().size(); break;
+                default: sideVisible_ = !sideVisible_; break;
+            }
+            Resize(); InvalidateRect(hwnd_, nullptr, TRUE); return;
+        }
+        if (sideVisible_ && !pinned_ && x > kSidebar + kSidePanel && y > kTopbar) {
+            sideVisible_ = false;
+            Resize();
+            InvalidateRect(hwnd_, nullptr, TRUE);
+        }
+        if (sideVisible_ && y < 48 && x > kSidebar) {
+            RECT pin = PinRect(), reload = ReloadRect(), pop = PopRect(), close = CloseRect();
+            if (Hit(x,y,pin)) pinned_ = !pinned_;
+            else if (Hit(x,y,reload) && sideWeb_) sideWeb_->Reload();
+            else if (Hit(x,y,pop) && mainWeb_) mainWeb_->Navigate(sideUrl_.c_str());
+            else if (Hit(x,y,close)) sideVisible_ = false;
+            Resize(); InvalidateRect(hwnd_, nullptr, TRUE); return;
+        }
+        RECT go = GoRect(), back = BackRect(), forward = ForwardRect(), reload = MainReloadRect(), home = HomeRect();
+        if (Hit(x,y,go)) NavigateAddress();
+        else if (Hit(x,y,back) && mainWeb_) mainWeb_->GoBack();
+        else if (Hit(x,y,forward) && mainWeb_) mainWeb_->GoForward();
+        else if (Hit(x,y,reload) && mainWeb_) mainWeb_->Reload();
+        else if (Hit(x,y,home) && mainWeb_) mainWeb_->Navigate(kHomeUrl);
+    }
+
+    void OpenSide(const wchar_t* title, const wchar_t* url) {
+        sideTitle_ = title; sideUrl_ = url; sideVisible_ = true;
+        if (sideWeb_) sideWeb_->Navigate(url);
+    }
+
+    void OpenSideHtml(const wchar_t* title, const std::wstring& html) {
+        sideTitle_ = title; sideUrl_ = L"about:space-panel"; sideVisible_ = true;
+        if (sideWeb_) sideWeb_->NavigateToString(html.c_str());
+    }
+
+    std::wstring PanelHtml(const wchar_t* heading, const wchar_t* body) const {
+        return std::wstring(LR"(
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;background:#202020;color:#f4f6ff;font:14px Segoe UI,Arial,sans-serif}
+.wrap{padding:26px}.card{background:#2c2c2c;border:1px solid #3b3f56;border-radius:10px;padding:18px;margin:0 0 14px}
+h1{font-size:24px;margin:0 0 18px;color:#3b6bff}.muted{color:#a8b0c8;line-height:1.55}
+button{background:#3b6bff;color:white;border:0;border-radius:8px;padding:10px 14px;margin:6px 6px 0 0;font-weight:700}
+</style></head><body><div class="wrap"><h1>)") + heading + L"</h1><div class=\"card\"><div class=\"muted\">" + body + L"</div></div></div></body></html>";
+    }
+
+    std::wstring ControlHtml() const {
+        return PanelHtml(L"GX Control", L"Performance controls will live here: RAM limiter, network limiter, tab usage, and cleanup tools. The shell is ready for native meters next.");
+    }
+
+    std::wstring HistoryHtml() const {
+        return PanelHtml(L"History", L"Per-profile browsing history storage is the next layer. For now, WebView2 keeps normal in-page navigation history and the back/forward buttons work immediately.");
+    }
+
+    std::wstring ExtensionsHtml() const {
+        return PanelHtml(L"Extensions", L"Space_ extension panels will appear here. Safety scanner, ad blocking, page tools, and quick actions can be added as native modules.");
+    }
+
+    std::wstring SettingsHtml() const {
+        return PanelHtml(L"Settings", L"Built-in themes are available from the sidebar control area. Upcoming settings: startup page, accent color, pinned apps, privacy controls, downloads, and profile data.");
+    }
+
+    bool Hit(int x, int y, RECT r) const { return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; }
+    RECT BackRect() const { return {kSidebar + (sideVisible_ ? kSidePanel : 0) + 16, 54, kSidebar + (sideVisible_ ? kSidePanel : 0) + 58, 88}; }
+    RECT ForwardRect() const { RECT r=BackRect(); OffsetRect(&r, 48, 0); return r; }
+    RECT MainReloadRect() const { RECT r=BackRect(); OffsetRect(&r, 96, 0); return r; }
+    RECT HomeRect() const { RECT r=BackRect(); OffsetRect(&r, 144, 0); r.right += 34; return r; }
+    RECT BadgeRect() const { RECT r=BackRect(); OffsetRect(&r, 226, 0); r.right += 34; return r; }
+    RECT GoRect() const { RECT c{}; GetClientRect(hwnd_, &c); return {c.right - 62, 54, c.right - 14, 88}; }
+    RECT PinRect() const { return {kSidebar + kSidePanel - 144, 12, kSidebar + kSidePanel - 112, 40}; }
+    RECT ReloadRect() const { return {kSidebar + kSidePanel - 108, 12, kSidebar + kSidePanel - 76, 40}; }
+    RECT PopRect() const { return {kSidebar + kSidePanel - 72, 12, kSidebar + kSidePanel - 40, 40}; }
+    RECT CloseRect() const { return {kSidebar + kSidePanel - 36, 12, kSidebar + kSidePanel - 8, 40}; }
+
+    HBRUSH editBrush() { if (editBrush_) DeleteObject(editBrush_); editBrush_ = CreateSolidBrush(theme().address); return editBrush_; }
+
+    void Paint() {
+        PAINTSTRUCT ps{}; HDC dc = BeginPaint(hwnd_, &ps); RECT c{}; GetClientRect(hwnd_, &c); Theme t=theme();
+        Fill(dc, c, t.bg);
+        RECT side{0,0,kSidebar,c.bottom}; Fill(dc, side, t.sidebar);
+        for(int i=0;i<12;i++){ RECT r{10, 12+i*40, kSidebar-10, 44+i*40}; LineIcon(dc,r,t.accent,i==1?5:i<2?i:i+4); }
+        Text(dc, L"GX", {10,c.bottom-42,kSidebar-10,c.bottom-12}, t.accent, 14, FW_BOLD);
+        int sideW = sideVisible_ ? kSidePanel : 0;
+        if (sideVisible_) {
+            RECT panel{kSidebar,0,kSidebar+kSidePanel,c.bottom}; Fill(dc,panel,t.top);
+            Text(dc, sideTitle_, {kSidebar+14,10,kSidebar+220,42}, t.accent, 18, FW_BOLD, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+            Text(dc, pinned_ ? L"PIN" : L"UNPIN", PinRect(), t.muted, 12, FW_NORMAL);
+            Text(dc, L"R", ReloadRect(), t.muted, 16, FW_BOLD);
+            Text(dc, L"↗", PopRect(), t.muted, 16, FW_BOLD);
+            Text(dc, L"X", CloseRect(), t.muted, 16, FW_BOLD);
+        }
+        RECT top{kSidebar+sideW,0,c.right,kTopbar}; Fill(dc,top,t.top);
+        RECT tab{kSidebar+sideW+12,8,kSidebar+sideW+190,42}; Fill(dc,tab,t.activeTab); Text(dc,L"Google Search",tab,t.text,16,FW_BOLD);
+        Text(dc,L"+",{tab.right+10,8,tab.right+48,42},t.text,18,FW_BOLD);
+        DrawNav(dc, t);
+        EndPaint(hwnd_, &ps);
+    }
+
+    void DrawNav(HDC dc, Theme t) {
+        auto button=[&](RECT r, const wchar_t* s, COLORREF bg=t.top){ Fill(dc,r,bg); Text(dc,s,r,t.text,16,FW_BOLD); };
+        button(BackRect(), L"<"); button(ForwardRect(), L">"); button(MainReloadRect(), L"R"); button(HomeRect(), L"Home");
+        Fill(dc, BadgeRect(), safetyRisk_ ? t.risk : t.safe); Text(dc, safetyRisk_ ? L"Risk" : L"Tick", BadgeRect(), RGB(255,255,255), 16, FW_BOLD);
+        button(GoRect(), L"Go");
+    }
+
+    static LRESULT CALLBACK AddressProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+        auto self = (SpaceWindow*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+        if (self && msg == WM_KEYDOWN && wp == VK_RETURN) {
+            self->NavigateAddress();
+            return 0;
+        }
+        return self ? CallWindowProc(self->oldAddressProc_, hwnd, msg, wp, lp) : DefWindowProcW(hwnd, msg, wp, lp);
+    }
+
+    HINSTANCE hInst_{}; HWND hwnd_{}, address_{}, buttons_[6]{}; HBRUSH editBrush_{};
+    WNDPROC oldAddressProc_{};
+    ComPtr<ICoreWebView2Environment> env_;
+    ComPtr<ICoreWebView2Controller> mainController_, sideController_;
+    ComPtr<ICoreWebView2> mainWeb_, sideWeb_;
+    size_t theme_ = 0; bool sideVisible_ = false, pinned_ = false, safetyRisk_ = false;
+    std::wstring sideTitle_ = L"CHATGPT", sideUrl_ = L"https://chat.openai.com/";
 };
 
-class BrowserShell {
-public:
-    void run() {
-        SetConsoleTitleA(kAppName);
-        std::cout << kAppName << "\n";
-        std::cout << "No Chromium. No embedded browser. First engine foundation.\n";
-        navigate(google_search_url("browser from scratch"));
-        help();
+}
 
-        std::string line;
-        while (true) {
-            std::cout << "\nbrowser> ";
-            if (!std::getline(std::cin, line)) {
-                break;
-            }
-            if (!command(line)) {
-                break;
-            }
-        }
-    }
-
-private:
-    bool command(const std::string& line) {
-        std::istringstream input(trim(line));
-        std::string verb;
-        input >> verb;
-        if (verb.empty()) {
-            return true;
-        }
-        if (verb == "quit" || verb == "exit") {
-            return false;
-        }
-        if (verb == "help") {
-            help();
-        } else if (verb == "open") {
-            std::string rest;
-            std::getline(input, rest);
-            navigate(normalize_input(rest));
-        } else if (verb == "search") {
-            std::string rest;
-            std::getline(input, rest);
-            navigate(google_search_url(trim(rest)));
-        } else if (verb == "back") {
-            back();
-        } else if (verb == "forward") {
-            forward();
-        } else if (verb == "reload") {
-            if (!history_.empty()) {
-                navigate(history_[history_index_], false);
-            }
-        } else if (verb == "safety") {
-            print_safety();
-        } else if (verb == "dom") {
-            if (current_.document.root) {
-                print_dom(*current_.document.root, 0);
-            }
-        } else {
-            std::cout << "Unknown command. Type help.\n";
-        }
-        return true;
-    }
-
-    void navigate(const std::string& url, bool add_history = true) {
-        std::cout << "\nLoading " << url << "\n";
-        try {
-            HttpResponse response = network_.get(url);
-            current_.document = loader_.load(url, response.body);
-            current_.safety = scanner_.scan(current_.document);
-            current_.layout = layout_.layout(current_.document);
-        } catch (const std::exception& error) {
-            current_ = {};
-            current_.document.url = url;
-            current_.document.title = "Load failed";
-            current_.safety.state = SafetyState::Risky;
-            current_.safety.findings.push_back(std::string("HIGH: load failed: ") + error.what());
-            current_.layout = {error.what()};
-        }
-
-        if (add_history) {
-            history_.resize(static_cast<size_t>(history_index_ + 1));
-            history_.push_back(url);
-            history_index_ = static_cast<int>(history_.size()) - 1;
-        }
-        paint();
-    }
-
-    void back() {
-        if (history_index_ <= 0) {
-            std::cout << "No back history.\n";
-            return;
-        }
-        --history_index_;
-        navigate(history_[history_index_], false);
-    }
-
-    void forward() {
-        if (history_index_ >= static_cast<int>(history_.size()) - 1) {
-            std::cout << "No forward history.\n";
-            return;
-        }
-        ++history_index_;
-        navigate(history_[history_index_], false);
-    }
-
-    void paint() const {
-        std::cout << "\n" << badge(current_.safety.state) << "  " << current_.document.title << "\n";
-        std::cout << current_.document.url << "\n";
-        std::cout << "------------------------------------------------------------\n";
-        size_t count = 0;
-        for (const std::string& line : current_.layout) {
-            if (++count > 45) {
-                std::cout << "... trimmed ...\n";
-                break;
-            }
-            if (!line.empty()) {
-                std::cout << line << "\n";
-            }
-        }
-    }
-
-    void print_safety() const {
-        std::cout << badge(current_.safety.state) << "\n";
-        if (current_.safety.findings.empty()) {
-            std::cout << "No obvious risk detected. This is not a guarantee of safety.\n";
-            return;
-        }
-        for (const std::string& finding : current_.safety.findings) {
-            std::cout << finding << "\n";
-        }
-    }
-
-    static void print_dom(const Node& node, int depth) {
-        std::cout << std::string(static_cast<size_t>(depth) * 2, ' ') << node.name;
-        if (node.name == "#text") {
-            std::cout << ": " << node.text.substr(0, 80);
-        }
-        std::cout << "\n";
-        for (const auto& child : node.children) {
-            print_dom(*child, depth + 1);
-        }
-    }
-
-    static void help() {
-        std::cout << "\nCommands:\n";
-        std::cout << "  open <url-or-domain>\n";
-        std::cout << "  search <words>\n";
-        std::cout << "  back | forward | reload\n";
-        std::cout << "  safety | dom | help | quit\n";
-    }
-
-    NetworkService network_;
-    DocumentLoader loader_;
-    LayoutEngine layout_;
-    SafetyScanner scanner_;
-    Page current_;
-    std::vector<std::string> history_;
-    int history_index_ = -1;
-};
-
-}  // namespace browser
-
-int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show) {
-    return browser::OperaLikeWindow().run(instance, show);
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int show) {
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    int result = SpaceWindow().Run(hInstance, show);
+    CoUninitialize();
+    return result;
 }

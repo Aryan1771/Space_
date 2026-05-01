@@ -18,7 +18,7 @@
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": "$gcc"
+      "problemMatcher": "$msCompile"
     },
     {
       "label": "Run Space_",
@@ -26,10 +26,7 @@
       "command": "${workspaceFolder}/build/Space_.exe",
       "dependsOn": "Build Space_",
       "options": {
-        "cwd": "${workspaceFolder}",
-        "env": {
-          "PATH": "C:/msys64/ucrt64/bin;${env:PATH}"
-        }
+        "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
     }
