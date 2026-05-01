@@ -1,0 +1,37 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Safe GX Browser C++",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/cpp_browser/build.ps1"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/cpp_browser"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Run Safe GX Browser C++",
+      "type": "shell",
+      "command": "${workspaceFolder}/cpp_browser/build/safe_gx_browser.exe",
+      "options": {
+        "cwd": "${workspaceFolder}/cpp_browser",
+        "env": {
+          "PATH": "C:/msys64/ucrt64/bin;${env:PATH}"
+        }
+      },
+      "dependsOn": "Build Safe GX Browser C++",
+      "problemMatcher": []
+    }
+  ]
+}

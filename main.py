@@ -19,8 +19,8 @@ from urllib.request import Request, urlopen
 
 
 APP_NAME = "Safe GX Browser"
-HOME_URL = "https://duckduckgo.com/html/?q=safe+browser"
-SEARCH_URL = "https://duckduckgo.com/html/?q={query}"
+HOME_URL = "https://www.google.com/search?q=safe+browser"
+SEARCH_URL = "https://www.google.com/search?q={query}"
 USER_AGENT = "SafeGXBrowser/1.0 (+https://example.local)"
 MAX_PAGE_BYTES = 1_500_000
 SETTINGS_PATH = Path(__file__).with_name("browser_settings.json")

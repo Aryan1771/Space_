@@ -6,6 +6,7 @@ A custom Python browser framework that avoids Chromium. It uses Python's standar
 
 - Custom non-Chromium HTML fetcher and reader renderer
 - Browser-style navigation bar with back, forward, reload, home, address/search, and Go
+- Google search as the default home/search provider
 - Site verification badge:
   - Green tick: no obvious risk detected
   - Yellow warning: only low-risk findings detected
@@ -32,6 +33,27 @@ python main.py
 ```
 
 No external Python packages are required.
+
+## C++ Framework Prototype
+
+The `cpp_browser` folder contains a C++17 prototype organized more like Chromium: browser shell, networking, content reader, and security scanning are separate modules.
+
+Build it from PowerShell:
+
+```powershell
+cd cpp_browser
+.\build.ps1
+.\build\safe_gx_browser.exe
+```
+
+In VS Code:
+
+- Open this repository folder.
+- Press `Ctrl+Shift+B` and choose `Build Safe GX Browser C++`.
+- Use `Terminal > Run Task > Run Safe GX Browser C++` to run it.
+- Use `Run and Debug > Debug Safe GX Browser C++` to debug with GDB.
+
+The VS Code setup uses the existing MSYS2 UCRT64 toolchain at `C:\msys64\ucrt64\bin`. Do not delete MSYS2 unless you replace it with another C++ compiler and update `.vscode` plus `cpp_browser/build.ps1`.
 
 ## Safety Model
 
