@@ -11,6 +11,8 @@
 #include <windows.h>
 #include <wininet.h>
 
+#include "resource.h"
+
 namespace browser {
 
 std::string lower(std::string value) {
@@ -207,6 +209,50 @@ private:
             }
         }
     };
+};
+
+class AppIcon {
+public:
+    static HICON load_large() {
+        return load_icon(32, 32);
+    }
+
+    static HICON load_small() {
+        return load_icon(16, 16);
+    }
+
+    static void apply_to_window(HWND window) {
+        if (!window) {
+            return;
+        }
+        if (HICON large = load_large()) {
+            SendMessage(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(large));
+        }
+        if (HICON small = load_small()) {
+            SendMessage(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(small));
+        }
+    }
+
+private:
+    static HICON load_icon(int width, int height) {
+        HICON icon = reinterpret_cast<HICON>(LoadImage(
+            GetModuleHandle(nullptr),
+            MAKEINTRESOURCE(IDI_APP_ICON),
+            IMAGE_ICON,
+            width,
+            height,
+            LR_DEFAULTCOLOR));
+        if (icon) {
+            return icon;
+        }
+        return reinterpret_cast<HICON>(LoadImage(
+            nullptr,
+            "assets\\app.ico",
+            IMAGE_ICON,
+            width,
+            height,
+            LR_LOADFROMFILE | LR_DEFAULTCOLOR));
+    }
 };
 
 enum class TokenType { StartTag, EndTag, Text };

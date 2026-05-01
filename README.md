@@ -24,6 +24,16 @@ This repo now starts that work cleanly. The next milestones should be a native G
 .\build\browser.exe
 ```
 
+## App Icon
+
+Add your Windows icon at:
+
+```text
+assets/app.ico
+```
+
+When that file exists, `build.ps1` embeds it into `build/browser.exe`. The code also includes an `AppIcon::apply_to_window(HWND)` helper so the same icon can be applied to the native title bar when the GUI window layer is added.
+
 In VS Code:
 
 - Open this repository folder.
