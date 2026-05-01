@@ -52,6 +52,7 @@ In VS Code:
 - Press `Ctrl+Shift+B` and choose `Build Safe GX Browser C++`.
 - Use `Terminal > Run Task > Run Safe GX Browser C++` to run it.
 - Use `Run and Debug > Debug Safe GX Browser C++` to debug with GDB.
+- If you press VS Code's generic run button on `main.cpp`, it also works because `main.cpp` includes the other implementation files for active-file builds.
 
 The VS Code setup uses the existing MSYS2 UCRT64 toolchain at `C:\msys64\ucrt64\bin`. Do not delete MSYS2 unless you replace it with another C++ compiler and update `.vscode` plus `cpp_browser/build.ps1`.
 

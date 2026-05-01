@@ -2,3 +2,4 @@ __pycache__/
 *.py[cod]
 cpp_browser/build/
 cpp_browser/*.exe
+cpp_browser/src/output/

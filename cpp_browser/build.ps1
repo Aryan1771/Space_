@@ -6,13 +6,12 @@ if (!(Test-Path $gpp)) {
 }
 
 New-Item -ItemType Directory -Force -Path "build" | Out-Null
-& $gpp -std=c++17 -Wall -Wextra -O2 `
+& $gpp -std=c++17 -Wall -Wextra -O2 -DSAFE_GX_SEPARATE_TRANSLATION_UNITS `
     src/main.cpp `
     src/browser.cpp `
     src/content.cpp `
     src/net.cpp `
     src/security.cpp `
-    -lwininet `
     -o build/safe_gx_browser.exe
 
 if ($LASTEXITCODE -ne 0) {
