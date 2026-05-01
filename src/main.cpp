@@ -183,12 +183,17 @@ public:
         RegisterClassW(&wc);
 
         hwnd_ = CreateWindowW(wc.lpszClassName, kAppName, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1500, 900, nullptr, nullptr, hInstance, this);
+        if (!hwnd_) {
+            MessageBoxW(nullptr, L"Space_ could not create its main browser window.", kAppName, MB_ICONERROR);
+            return 1;
+        }
         SetWindowTextW(hwnd_, kAppName);
         SendMessageW(hwnd_, WM_SETICON, ICON_BIG, (LPARAM)LoadIconW(hInstance, MAKEINTRESOURCE(IDI_APP_ICON)));
         SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, (LPARAM)LoadImageW(hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR));
 
         CreateControls();
-        ShowWindow(hwnd_, show);
+        ShowWindow(hwnd_, show == SW_HIDE ? SW_SHOWNORMAL : show);
+        SetForegroundWindow(hwnd_);
         UpdateWindow(hwnd_);
         InitWebViews();
 
