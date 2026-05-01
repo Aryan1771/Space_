@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -719,6 +720,64 @@ void draw_button(HDC dc, const RECT& rect, const std::string& label, COLORREF bg
     draw_text(dc, label, text_rect, fg, DT_CENTER | DT_VCENTER | DT_SINGLELINE, 15, FW_SEMIBOLD);
 }
 
+void draw_line_icon(HDC dc, const RECT& rect, COLORREF color, int kind) {
+    HPEN pen = CreatePen(PS_SOLID, 2, color);
+    HBRUSH hollow = reinterpret_cast<HBRUSH>(GetStockObject(HOLLOW_BRUSH));
+    HGDIOBJ old_pen = SelectObject(dc, pen);
+    HGDIOBJ old_brush = SelectObject(dc, hollow);
+    const int cx = (rect.left + rect.right) / 2;
+    const int cy = (rect.top + rect.bottom) / 2;
+    const int w = rect.right - rect.left;
+    const int h = rect.bottom - rect.top;
+    switch (kind) {
+        case 0:  // home/orbit
+            Ellipse(dc, cx - 10, cy - 10, cx + 10, cy + 10);
+            MoveToEx(dc, cx - 5, cy + 7, nullptr); LineTo(dc, cx + 10, cy - 8);
+            break;
+        case 1:  // shield
+            MoveToEx(dc, cx, cy - 12, nullptr); LineTo(dc, cx + 11, cy - 7); LineTo(dc, cx + 8, cy + 8); LineTo(dc, cx, cy + 14); LineTo(dc, cx - 8, cy + 8); LineTo(dc, cx - 11, cy - 7); LineTo(dc, cx, cy - 12);
+            break;
+        case 2:  // link
+            Arc(dc, cx - 16, cy - 8, cx + 2, cy + 10, cx - 11, cy - 6, cx - 3, cy + 8);
+            Arc(dc, cx - 2, cy - 10, cx + 16, cy + 8, cx + 11, cy + 6, cx + 3, cy - 8);
+            MoveToEx(dc, cx - 6, cy + 4, nullptr); LineTo(dc, cx + 6, cy - 4);
+            break;
+        case 3:  // history
+            Arc(dc, cx - 12, cy - 12, cx + 12, cy + 12, cx - 9, cy - 8, cx - 12, cy + 1);
+            MoveToEx(dc, cx - 11, cy - 8, nullptr); LineTo(dc, cx - 17, cy - 8); LineTo(dc, cx - 13, cy - 13);
+            MoveToEx(dc, cx, cy - 7, nullptr); LineTo(dc, cx, cy); LineTo(dc, cx + 7, cy + 5);
+            break;
+        case 4:  // extension puzzle
+            Rectangle(dc, cx - 11, cy - 8, cx + 11, cy + 11);
+            Ellipse(dc, cx - 4, cy - 15, cx + 4, cy - 7);
+            Rectangle(dc, cx + 8, cy - 2, cx + 15, cy + 5);
+            break;
+        case 5:  // settings gear-ish
+            Ellipse(dc, cx - 8, cy - 8, cx + 8, cy + 8);
+            Ellipse(dc, cx - 3, cy - 3, cx + 3, cy + 3);
+            for (int i = 0; i < 8; ++i) {
+                double a = i * 3.14159 / 4.0;
+                MoveToEx(dc, cx + static_cast<int>(std::cos(a) * 10), cy + static_cast<int>(std::sin(a) * 10), nullptr);
+                LineTo(dc, cx + static_cast<int>(std::cos(a) * 14), cy + static_cast<int>(std::sin(a) * 14));
+            }
+            break;
+        case 6:  // palette/theme
+            Ellipse(dc, cx - 13, cy - 10, cx + 13, cy + 12);
+            Ellipse(dc, cx - 6, cy - 4, cx - 2, cy); Ellipse(dc, cx + 2, cy - 5, cx + 6, cy - 1); Ellipse(dc, cx - 1, cy + 3, cx + 3, cy + 7);
+            break;
+        default:  // menu
+            Ellipse(dc, cx - 10, cy - 2, cx - 6, cy + 2);
+            Ellipse(dc, cx - 2, cy - 2, cx + 2, cy + 2);
+            Ellipse(dc, cx + 6, cy - 2, cx + 10, cy + 2);
+            break;
+    }
+    SelectObject(dc, old_brush);
+    SelectObject(dc, old_pen);
+    DeleteObject(pen);
+    (void)w;
+    (void)h;
+}
+
 struct Theme {
     std::string name;
     COLORREF window;
@@ -903,7 +962,6 @@ private:
             DeleteObject(brush);
         }
         brush = CreateSolidBrush(theme().address);
-        SetTextColor(GetDC(address_), theme().text);
         return brush;
     }
 
@@ -980,6 +1038,17 @@ private:
     }
 
     void on_click(int x, int y) {
+        if (panel_ != PanelMode::None && hit(x, y, panel_close_rect())) {
+            panel_ = PanelMode::None;
+            layout_controls();
+            InvalidateRect(window_, nullptr, TRUE);
+            return;
+        }
+        if (panel_ != PanelMode::None && handle_panel_click(x, y)) {
+            layout_controls();
+            InvalidateRect(window_, nullptr, TRUE);
+            return;
+        }
         if (x < kSidebarWidth) {
             const int item = y / 40;
             switch (item) {
@@ -987,25 +1056,25 @@ private:
                     navigate(google_search_url("browser from scratch"));
                     break;
                 case 1:
-                    panel_ = PanelMode::Safety;
+                    toggle_panel(PanelMode::Safety);
                     break;
                 case 2:
-                    panel_ = PanelMode::Links;
+                    toggle_panel(PanelMode::Links);
                     break;
                 case 3:
-                    panel_ = PanelMode::History;
+                    toggle_panel(PanelMode::History);
                     break;
                 case 4:
-                    panel_ = PanelMode::Extensions;
+                    toggle_panel(PanelMode::Extensions);
                     break;
                 case 5:
-                    panel_ = PanelMode::Settings;
+                    toggle_panel(PanelMode::Settings);
                     break;
                 case 6:
                     theme_index_ = (theme_index_ + 1) % themes().size();
                     break;
                 default:
-                    panel_ = panel_ == PanelMode::None ? PanelMode::Safety : PanelMode::None;
+                    toggle_panel(PanelMode::Safety);
                     break;
             }
             layout_controls();
@@ -1037,6 +1106,85 @@ private:
 
     bool hit(int x, int y, const RECT& rect) const {
         return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    }
+
+    void toggle_panel(PanelMode mode) {
+        panel_ = panel_ == mode ? PanelMode::None : mode;
+    }
+
+    RECT panel_rect() const {
+        RECT client{};
+        GetClientRect(window_, &client);
+        return {client.right - kPanelWidth, kTabHeight + kNavHeight, client.right, client.bottom};
+    }
+
+    RECT panel_close_rect() const {
+        RECT panel = panel_rect();
+        return {panel.right - 42, panel.top + 16, panel.right - 14, panel.top + 44};
+    }
+
+    RECT panel_primary_button_rect() const {
+        RECT panel = panel_rect();
+        return {panel.left + 18, panel.top + 70, panel.right - 18, panel.top + 104};
+    }
+
+    RECT panel_secondary_button_rect() const {
+        RECT panel = panel_rect();
+        return {panel.left + 18, panel.top + 112, panel.right - 18, panel.top + 146};
+    }
+
+    bool handle_panel_click(int x, int y) {
+        RECT panel = panel_rect();
+        if (!hit(x, y, panel)) {
+            return false;
+        }
+        if (panel_ == PanelMode::Settings) {
+            if (hit(x, y, panel_primary_button_rect())) {
+                theme_index_ = (theme_index_ + 1) % themes().size();
+                return true;
+            }
+            if (hit(x, y, panel_secondary_button_rect())) {
+                panel_ = PanelMode::None;
+                return true;
+            }
+        }
+        if (panel_ == PanelMode::History) {
+            if (hit(x, y, panel_primary_button_rect())) {
+                active().history.clear();
+                active().history_index = -1;
+                return true;
+            }
+            const int row_start = panel.top + 118;
+            const int row_height = 34;
+            const int index = (y - row_start) / row_height;
+            BrowserTab& tab = active();
+            if (index >= 0 && index < static_cast<int>(tab.history.size())) {
+                RECT delete_box{panel.right - 44, row_start + index * row_height + 5, panel.right - 18, row_start + index * row_height + 29};
+                if (hit(x, y, delete_box)) {
+                    tab.history.erase(tab.history.begin() + index);
+                    if (tab.history.empty()) {
+                        tab.history_index = -1;
+                    } else if (tab.history_index >= static_cast<int>(tab.history.size())) {
+                        tab.history_index = static_cast<int>(tab.history.size()) - 1;
+                    }
+                    return true;
+                }
+                navigate(tab.history[static_cast<size_t>(index)], false);
+                tab.history_index = index;
+                return true;
+            }
+        }
+        if (panel_ == PanelMode::Links) {
+            const int row_start = panel.top + 68;
+            const int row_height = 42;
+            const int index = (y - row_start) / row_height;
+            const auto& links = active().page.document.links;
+            if (index >= 0 && index < static_cast<int>(links.size())) {
+                navigate(links[static_cast<size_t>(index)].second);
+                return true;
+            }
+        }
+        return true;
     }
 
     RECT back_rect() const { return {kSidebarWidth + 16, kTabHeight + 10, kSidebarWidth + 58, kTabHeight + 44}; }
@@ -1071,13 +1219,21 @@ private:
     void paint_sidebar(HDC dc, const RECT& client, const Theme& t) {
         RECT sidebar{0, 0, kSidebarWidth, client.bottom};
         fill_rect(dc, sidebar, t.sidebar);
-        const std::vector<std::string> labels = {"O", "S", "L", "H", "X", "T", "GX", "..."};
-        for (size_t i = 0; i < labels.size(); ++i) {
+        for (size_t i = 0; i < 8; ++i) {
             RECT r{10, static_cast<LONG>(12 + i * 40), kSidebarWidth - 10, static_cast<LONG>(44 + i * 40)};
-            draw_button(dc, r, labels[i], t.sidebar, t.accent, false);
+            const bool active =
+                (i == 1 && panel_ == PanelMode::Safety) ||
+                (i == 2 && panel_ == PanelMode::Links) ||
+                (i == 3 && panel_ == PanelMode::History) ||
+                (i == 4 && panel_ == PanelMode::Extensions) ||
+                (i == 5 && panel_ == PanelMode::Settings);
+            if (active) {
+                fill_rect(dc, r, t.tab);
+            }
+            draw_line_icon(dc, r, active ? t.text : t.accent, static_cast<int>(i));
         }
         RECT brand{8, client.bottom - 42, kSidebarWidth - 8, client.bottom - 10};
-        draw_text(dc, "Space_", brand, t.accent, DT_CENTER | DT_VCENTER | DT_SINGLELINE, 13, FW_BOLD);
+        draw_text(dc, "S_", brand, t.accent, DT_CENTER | DT_VCENTER | DT_SINGLELINE, 13, FW_BOLD);
     }
 
     void paint_tabs(HDC dc, const RECT& client, const Theme& t) {
@@ -1135,7 +1291,7 @@ private:
             lines = {"Built-in safety scanner", "Theme manager", "Sidebar launcher", "Extension API coming next"};
         } else if (panel_ == PanelMode::Settings) {
             title = "Settings";
-            lines = {"Theme: " + theme().name, "Click GX in sidebar to cycle themes.", "Icon: assets/app.ico", "Engine: custom C++ base"};
+            lines = {"Theme: " + theme().name, "Executable icon: assets/app.ico", "Engine: custom C++ base", "Renderer: custom DOM/layout prototype"};
         } else if (panel_ == PanelMode::History) {
             title = "History";
             lines = active().history;
@@ -1152,10 +1308,40 @@ private:
         }
         RECT heading{panel.left + 18, panel.top + 18, panel.right - 18, panel.top + 52};
         draw_text(dc, title, heading, t.text, DT_LEFT | DT_SINGLELINE | DT_VCENTER, 22, FW_BOLD);
+        draw_button(dc, panel_close_rect(), "X", t.tab, t.text);
+        if (panel_ == PanelMode::Settings) {
+            draw_button(dc, panel_primary_button_rect(), "Cycle theme: " + theme().name, t.active_tab, t.text);
+            draw_button(dc, panel_secondary_button_rect(), "Hide side panel", t.tab, t.text);
+            int y = panel.top + 164;
+            for (const auto& line : lines) {
+                RECT row{panel.left + 18, y, panel.right - 18, y + 42};
+                draw_text(dc, line, row, t.text, DT_LEFT | DT_WORDBREAK, 16);
+                y += 48;
+            }
+            return;
+        }
+        if (panel_ == PanelMode::History) {
+            draw_button(dc, panel_primary_button_rect(), "Clear full history", t.risk, RGB(255, 255, 255));
+            int y = panel.top + 118;
+            if (active().history.empty()) {
+                RECT empty{panel.left + 18, y, panel.right - 18, y + 42};
+                draw_text(dc, "No history yet.", empty, t.muted, DT_LEFT | DT_SINGLELINE | DT_VCENTER, 16);
+                return;
+            }
+            for (size_t i = 0; i < active().history.size(); ++i) {
+                RECT row{panel.left + 18, y, panel.right - 52, y + 30};
+                draw_text(dc, active().history[i], row, t.text, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS, 15);
+                RECT del{panel.right - 44, y + 5, panel.right - 18, y + 29};
+                draw_button(dc, del, "X", t.tab, t.risk);
+                y += 34;
+                if (y > panel.bottom - 20) break;
+            }
+            return;
+        }
         int y = panel.top + 66;
         for (const auto& line : lines) {
             RECT row{panel.left + 18, y, panel.right - 18, y + 48};
-            draw_text(dc, line, row, t.text, DT_LEFT | DT_WORDBREAK, 16);
+            draw_text(dc, line, row, t.text, DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS, 16);
             y += 52;
             if (y > panel.bottom - 20) break;
         }
@@ -1171,7 +1357,7 @@ private:
     std::vector<BrowserTab> tabs_;
     size_t active_tab_ = 0;
     size_t theme_index_ = 0;
-    PanelMode panel_ = PanelMode::Safety;
+    PanelMode panel_ = PanelMode::None;
 };
 
 class BrowserShell {

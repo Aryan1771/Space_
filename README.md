@@ -44,14 +44,18 @@ In VS Code:
 ## UI
 
 - Left sidebar inspired by Opera GX
+- Custom-drawn sidebar icons instead of text labels
 - Tab strip with new-tab button
 - Browser navigation bar with back, forward, reload, home, address, safety badge, and Go
-- Safety panel, extensions panel, settings panel, history panel, and links panel
+- Hideable right panel with safety, extensions, settings, history, and links views
 - Multiple built-in themes: Opera GX, GX Red, Neon Green, and Chrome Light
 - Click `GX` in the sidebar to cycle themes
+- Settings panel can cycle themes and hide the panel
+- History panel can open entries, delete individual entries, or clear full tab history
+- Links panel can open discovered page links
 - Uses `assets/app.ico` for the executable and title-bar icon
 
-Google is the default search provider. The tick/cross is calculated for each loaded website from the safety scanner, not from Google itself.
+Google is the default search provider. The current engine does not yet implement the full CSS/JavaScript/Web API stack that Google's normal browser interface needs, so Google may show a simplified fallback page. The tick/cross is calculated for each loaded website from the safety scanner, not from Google itself.
 
 ## Architecture
 
