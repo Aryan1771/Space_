@@ -25,7 +25,7 @@ if ($resourceObject) {
     $sources += $resourceObject
 }
 
-& $gpp -std=c++17 -Wall -Wextra -Wpedantic -O2 `
+& $gpp -std=c++17 -Wall -Wextra -Wpedantic -O2 -mwindows `
     @sources `
     -o build/Space_.exe
 

@@ -1,5 +1,7 @@
 build/
 out/
+src/output/
+.vs/
 *.exe
 *.obj
 *.o

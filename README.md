@@ -2,7 +2,7 @@
 
 This repository has been reset to build a browser from its own base instead of depending on Chromium, WebKit, Gecko, Qt WebEngine, or an embedded browser control.
 
-The first version is a C++17 browser-engine foundation. It fetches pages, tokenizes HTML, builds a small DOM, creates a simple layout tree, paints a readable text view in the terminal, and marks pages with a safety status.
+The current version is a C++17 browser-engine foundation with a native Windows UI inspired by Opera GX. It fetches pages, tokenizes HTML, builds a small DOM, creates a simple layout tree, paints a readable page view, and marks pages with a safety status.
 
 ## Current State
 
@@ -41,27 +41,21 @@ In VS Code:
 - Run `Terminal > Run Task > Run Space_`.
 - Use `Run and Debug > Debug Space_`.
 
-## Commands
+## UI
 
-Inside the browser shell:
-
-```text
-open https://example.com
-search browser safety
-back
-forward
-reload
-dom
-safety
-help
-quit
-```
+- Left sidebar inspired by Opera GX
+- Tab strip with new-tab button
+- Browser navigation bar with back, forward, reload, home, address, safety badge, and Go
+- Safety panel, extensions panel, settings panel, history panel, and links panel
+- Multiple built-in themes: Opera GX, GX Red, Neon Green, and Chrome Light
+- Click `GX` in the sidebar to cycle themes
+- Uses `assets/app.ico` for the executable and title-bar icon
 
 Google is the default search provider. The tick/cross is calculated for each loaded website from the safety scanner, not from Google itself.
 
 ## Architecture
 
-- `src/main.cpp` contains the app shell and all first-pass engine modules.
+- `src/main.cpp` contains the native UI shell and all first-pass engine modules.
 - `NetworkService` fetches pages through Windows networking APIs loaded dynamically.
 - `HtmlTokenizer` converts HTML into tokens.
 - `HtmlTreeBuilder` builds a minimal DOM.
