@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Build Browser From Scratch",
+      "label": "Build Space_",
       "type": "shell",
       "command": "powershell",
       "args": [
@@ -21,10 +21,10 @@
       "problemMatcher": "$gcc"
     },
     {
-      "label": "Run Browser From Scratch",
+      "label": "Run Space_",
       "type": "shell",
-      "command": "${workspaceFolder}/build/browser.exe",
-      "dependsOn": "Build Browser From Scratch",
+      "command": "${workspaceFolder}/build/Space_.exe",
+      "dependsOn": "Build Space_",
       "options": {
         "cwd": "${workspaceFolder}",
         "env": {

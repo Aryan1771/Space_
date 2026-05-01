@@ -15,6 +15,9 @@
 
 namespace browser {
 
+constexpr const char* kAppName = "Space_";
+constexpr const char* kUserAgent = "Space_/0.1";
+
 std::string lower(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
@@ -143,7 +146,7 @@ class NetworkService {
 public:
     HttpResponse get(const std::string& url) const {
         WinInet api;
-        HINTERNET session = api.internet_open("ScratchBrowser/0.1", INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
+        HINTERNET session = api.internet_open(kUserAgent, INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
         if (!session) {
             throw std::runtime_error("Could not start network session.");
         }
@@ -151,7 +154,7 @@ public:
         HINTERNET request = api.internet_open_url(
             session,
             url.c_str(),
-            "Accept: text/html,*/*\r\nUser-Agent: ScratchBrowser/0.1\r\n",
+            "Accept: text/html,*/*\r\nUser-Agent: Space_/0.1\r\n",
             0,
             INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE,
             0);
@@ -662,7 +665,8 @@ struct Page {
 class BrowserShell {
 public:
     void run() {
-        std::cout << "Browser From Scratch\n";
+        SetConsoleTitleA(kAppName);
+        std::cout << kAppName << "\n";
         std::cout << "No Chromium. No embedded browser. First engine foundation.\n";
         navigate(google_search_url("browser from scratch"));
         help();

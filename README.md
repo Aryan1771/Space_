@@ -1,4 +1,4 @@
-# Browser From Scratch
+# Space_
 
 This repository has been reset to build a browser from its own base instead of depending on Chromium, WebKit, Gecko, Qt WebEngine, or an embedded browser control.
 
@@ -21,7 +21,7 @@ This repo now starts that work cleanly. The next milestones should be a native G
 
 ```powershell
 .\build.ps1
-.\build\browser.exe
+.\build\Space_.exe
 ```
 
 ## App Icon
@@ -32,14 +32,14 @@ Add your Windows icon at:
 assets/app.ico
 ```
 
-When that file exists, `build.ps1` embeds it into `build/browser.exe`. The code also includes an `AppIcon::apply_to_window(HWND)` helper so the same icon can be applied to the native title bar when the GUI window layer is added.
+When that file exists, `build.ps1` embeds it into `build/Space_.exe`. The code also includes an `AppIcon::apply_to_window(HWND)` helper so the same icon can be applied to the native title bar when the GUI window layer is added.
 
 In VS Code:
 
 - Open this repository folder.
 - Press `Ctrl+Shift+B` to build.
-- Run `Terminal > Run Task > Run Browser From Scratch`.
-- Use `Run and Debug > Debug Browser From Scratch`.
+- Run `Terminal > Run Task > Run Space_`.
+- Use `Run and Debug > Debug Space_`.
 
 ## Commands
 

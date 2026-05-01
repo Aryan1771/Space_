@@ -27,10 +27,10 @@ if ($resourceObject) {
 
 & $gpp -std=c++17 -Wall -Wextra -Wpedantic -O2 `
     @sources `
-    -o build/browser.exe
+    -o build/Space_.exe
 
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed with exit code $LASTEXITCODE"
 }
 
-Write-Host "Built build/browser.exe"
+Write-Host "Built build/Space_.exe"
