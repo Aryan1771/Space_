@@ -1,0 +1,763 @@
+import { useEffect, useMemo, useState } from "react";
+import type { LucideIcon } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  AtSign,
+  BadgeCheck,
+  Bell,
+  Bot,
+  Bookmark,
+  BrainCircuit,
+  Brush,
+  CircleUserRound,
+  Clock3,
+  Code2,
+  Cookie,
+  Cpu,
+  Download,
+  ExternalLink,
+  Eye,
+  Fingerprint,
+  Gamepad2,
+  Gauge,
+  History,
+  Home,
+  Camera,
+  Languages,
+  Layers3,
+  LayoutDashboard,
+  MessageCircleMore,
+  MessagesSquare,
+  MonitorPlay,
+  MousePointer2,
+  Music4,
+  Network,
+  NotebookTabs,
+  Orbit,
+  PackageOpen,
+  Palette,
+  PanelLeft,
+  PanelRightOpen,
+  Pin,
+  PlaySquare,
+  Plus,
+  Puzzle,
+  RefreshCcw,
+  Search,
+  Send,
+  Shield,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  SplitSquareHorizontal,
+  Star,
+  Store,
+  Trash2,
+  Volume2,
+  WandSparkles,
+  Wallpaper,
+  X,
+  Zap
+} from "lucide-react";
+import { sidebarApps } from "@shared/defaults";
+import type { AppSettings, BrowserStateSnapshot, TabRecord, ThemeId } from "@shared/types";
+
+const emptyState: BrowserStateSnapshot = {
+  tabs: [],
+  activeTabId: null,
+  bookmarks: [],
+  history: [],
+  downloads: [],
+  settings: {
+    theme: "gx-red",
+    sidebarApps: [],
+    customAiUrl: "https://chat.openai.com",
+    startPageWidgets: [],
+    shieldDefaults: {
+      ads: true,
+      trackers: true,
+      cookies: "block-third-party",
+      fingerprinting: true,
+      httpsUpgrade: true,
+      scripts: false,
+      consentBlock: true
+    },
+    siteShieldRules: [],
+    performanceProfile: {
+      backgroundTabPolicy: "balanced",
+      suspendThresholdMinutes: 20,
+      throttleNetworkPreset: "off",
+      animationLevel: "full"
+    },
+    downloadsPath: "",
+    enableExperimentalExtensions: false,
+    soundsEnabled: true,
+    notes: [],
+    speedDial: []
+  },
+  sidebarOpen: false,
+  sidebarPinned: true,
+  activeSidebarAppId: null
+};
+
+const themeClassMap: Record<ThemeId, string> = {
+  "gx-red": "theme-gx-red",
+  "neon-green": "theme-neon-green",
+  "electric-blue": "theme-electric-blue",
+  "cyber-yellow": "theme-cyber-yellow",
+  dark: "theme-dark",
+  light: "theme-light"
+};
+
+const themeOptions: Array<{ id: ThemeId; name: string; hint: string }> = [
+  { id: "gx-red", name: "GX Red", hint: "Default red neon" },
+  { id: "neon-green", name: "Neon Green", hint: "Matrix glow" },
+  { id: "electric-blue", name: "Electric Blue", hint: "Clean cyber blue" },
+  { id: "cyber-yellow", name: "Cyber Yellow", hint: "High contrast" },
+  { id: "dark", name: "Dark Mode", hint: "Quiet focus" },
+  { id: "light", name: "Light Mode", hint: "Daylight chrome" }
+];
+
+const featureGroups: Array<{ title: string; Icon: LucideIcon; status: string; items: string[] }> = [
+  {
+    title: "Core Browser",
+    Icon: LayoutDashboard,
+    status: "Chromium tabs",
+    items: ["Tab islands", "Pin tabs", "Tab preview", "Split screen", "Tab search", "Workspaces"]
+  },
+  {
+    title: "Brave-Style Shields",
+    Icon: ShieldCheck,
+    status: "On by default",
+    items: ["Ads", "Trackers", "Cookies", "HTTPS upgrade", "Scripts", "Consent filters"]
+  },
+  {
+    title: "GX Mods",
+    Icon: WandSparkles,
+    status: "Local mods",
+    items: ["Colors", "Sounds", "Cursors", "Shaders", "Wallpapers", "Import/export"]
+  },
+  {
+    title: "Sidebar Apps",
+    Icon: PanelLeft,
+    status: "Resizable",
+    items: ["Settings", "History", "Downloads", "Notes", "Music", "Social + AI panels"]
+  },
+  {
+    title: "GX Control",
+    Icon: Gauge,
+    status: "Behavior controls",
+    items: ["Tab sleep", "Timer throttling", "Network presets", "Animation levels", "Private sessions"]
+  },
+  {
+    title: "AI Tools",
+    Icon: BrainCircuit,
+    status: "Sidebar powered",
+    items: ["Summarize", "Explain", "Rewrite", "Translate", "Generate code", "Custom AI URL"]
+  },
+  {
+    title: "Utilities",
+    Icon: Puzzle,
+    status: "Built in",
+    items: ["Screenshot", "GX Cleaner", "Video pop-out", "Downloads", "Chrome extensions", "Sync scaffold"]
+  },
+  {
+    title: "Future Rails",
+    Icon: Network,
+    status: "Truthful v1",
+    items: ["VPN scaffold", "Tor unavailable", "Sync unavailable", "Marketplace scaffold", "Extension experiment"]
+  }
+];
+
+const settingsSections = [
+  "Appearance",
+  "Themes",
+  "Mods",
+  "Sounds",
+  "Sidebar",
+  "Home Page",
+  "Tabs",
+  "Privacy",
+  "Performance",
+  "AI",
+  "Advanced"
+];
+
+export function App() {
+  const [snapshot, setSnapshot] = useState<BrowserStateSnapshot>(emptyState);
+  const [address, setAddress] = useState("https://www.google.com");
+  const [sidebarWidth, setSidebarWidth] = useState(380);
+  const [tabSearch, setTabSearch] = useState("");
+
+  useEffect(() => {
+    window.space.getSnapshot().then((data) => {
+      setSnapshot(data);
+      const active = data.tabs.find((tab: TabRecord) => tab.id === data.activeTabId);
+      setAddress(active?.url ?? "https://www.google.com");
+    });
+    return window.space.onSnapshot((data: BrowserStateSnapshot) => {
+      setSnapshot(data);
+      const active = data.tabs.find((tab: TabRecord) => tab.id === data.activeTabId);
+      if (active) setAddress(active.url);
+    });
+  }, []);
+
+  const activeTab = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId) ?? null;
+  const filteredTabs = useMemo(() => {
+    const value = tabSearch.trim().toLowerCase();
+    if (!value) return snapshot.tabs;
+    return snapshot.tabs.filter((tab) => `${tab.title} ${tab.url}`.toLowerCase().includes(value));
+  }, [snapshot.tabs, tabSearch]);
+
+  const activeSidebarApp = sidebarApps.find((app) => app.id === snapshot.activeSidebarAppId) ?? null;
+  const sidebarAppGroups = useMemo(
+    () => [
+      { label: "System", items: sidebarApps.filter((app) => app.type === "system" && snapshot.settings.sidebarApps.includes(app.id)) },
+      { label: "Social", items: sidebarApps.filter((app) => app.type === "social" && snapshot.settings.sidebarApps.includes(app.id)) },
+      { label: "AI", items: sidebarApps.filter((app) => app.type === "ai" && snapshot.settings.sidebarApps.includes(app.id)) }
+    ],
+    [snapshot.settings.sidebarApps]
+  );
+
+  async function navigate() {
+    if (!activeTab) return;
+    await window.space.navigate(activeTab.id, address);
+  }
+
+  async function patchSettings(patch: Partial<AppSettings>) {
+    await window.space.patchSettings(patch);
+  }
+
+  async function patchPerformance(patch: Partial<AppSettings["performanceProfile"]>) {
+    await patchSettings({ performanceProfile: { ...snapshot.settings.performanceProfile, ...patch } });
+  }
+
+  return (
+    <div className={`app-shell ${themeClassMap[snapshot.settings.theme]}`}>
+      <div className="backdrop-grid" />
+      <aside className={`space-sidebar ${snapshot.sidebarPinned ? "is-pinned" : "is-float"}`}>
+        <div className="brand-lockup">
+          <div className="brand-mark">S_</div>
+          <div>
+            <div className="brand-title">Space_</div>
+            <div className="brand-subtitle">GX + Shields</div>
+          </div>
+        </div>
+
+        <div className="sidebar-section">
+          {sidebarAppGroups.map((group) => (
+            <div className="sidebar-group" key={group.label}>
+              <div className="rail-group-label">{group.label}</div>
+              {group.items.map((app) => {
+                const Icon = iconComponent(app.icon);
+                return (
+              <button
+                key={app.id}
+                className={`sidebar-app ${snapshot.activeSidebarAppId === app.id ? "active" : ""}`}
+                title={app.name}
+                aria-label={app.name}
+                onClick={() => void window.space.openSidebarApp(app.id)}
+              >
+                    <span className="sidebar-app-icon">
+                      <Icon size={21} strokeWidth={2.2} />
+                    </span>
+                    <span className="sidebar-app-label">{app.name}</span>
+              </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        <div className="sidebar-footer">
+          <button className="ghost-button" onClick={() => void patchSettings({ theme: nextTheme(snapshot.settings.theme) })}>
+            <Palette size={18} />
+          </button>
+          <button className="ghost-button" onClick={() => void window.space.tabAction("private-window")}>
+            <Shield size={18} />
+          </button>
+        </div>
+      </aside>
+
+      <main className="browser-chrome" style={{ marginLeft: snapshot.sidebarOpen ? sidebarWidth : 0 }}>
+        <header className="top-chrome">
+          <div className="window-title-row">
+            <div className="window-title">Space_ - {activeTab?.title ?? "New Tab"}</div>
+            <div className="window-controls-placeholder">GX Workspace Alpha</div>
+          </div>
+
+          <div className="tab-strip">
+            <div className="tab-cluster">
+              {snapshot.tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  className={`tab-pill ${tab.id === snapshot.activeTabId ? "active" : ""} ${tab.isPinned ? "pinned" : ""}`}
+                  onClick={() => void window.space.tabAction("activate", { tabId: tab.id })}
+                >
+                  <span className="tab-title">{tab.title}</span>
+                  <span className="tab-meta">{tab.isPinned ? "PIN" : tab.isSplitParticipant ? "SPLIT" : tab.isSuspended ? "SLEEP" : tab.islandId ?? "WEB"}</span>
+                </button>
+              ))}
+            </div>
+              <button className="new-tab-button" onClick={() => void window.space.tabAction("new")}>
+              <Plus size={19} />
+            </button>
+          </div>
+
+          <div className="toolbar">
+            <div className="toolbar-actions">
+              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("back", { tabId: activeTab.id })}>
+                <ArrowLeft size={18} />
+              </button>
+              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("forward", { tabId: activeTab.id })}>
+                <ArrowRight size={18} />
+              </button>
+              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("reload", { tabId: activeTab.id })}>
+                <RefreshCcw size={18} />
+              </button>
+              <button className="circle-button" onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://www.google.com")}>
+                <Home size={18} />
+              </button>
+            </div>
+
+            <div className="address-shell">
+              <button className={`shield-pill ${activeTab?.shieldState.httpsUpgrade ? "on" : "off"}`}>
+                <ShieldCheck size={17} />
+                Shields
+              </button>
+              <input value={address} onChange={(event) => setAddress(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void navigate()} />
+              <button className="toolbar-utility" onClick={() => activeTab && void window.space.toggleBookmark?.(activeTab.id)}>
+                <Star size={18} />
+              </button>
+              <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("downloads")}>
+                <Download size={18} />
+              </button>
+              <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("settings")}>
+                <CircleUserRound size={18} />
+              </button>
+            </div>
+
+            <button className="go-button" onClick={() => void navigate()}>
+              Go
+            </button>
+          </div>
+        </header>
+
+        <section className="workspace-body">
+          <div className="start-surface">
+            <div className="hero-panel">
+              <div>
+                <div className="eyebrow">START PAGE</div>
+                <h1>Boost frames, block trackers, mod everything.</h1>
+                <p>Space_ merges Opera GX atmosphere with Brave-style shields in one Chromium desktop browser.</p>
+              </div>
+              <div className="hero-actions">
+                <button className="primary-button" onClick={() => void window.space.tabAction("new")}>
+                  <Plus size={18} />
+                  New Tab
+                </button>
+                <button className="secondary-button" onClick={() => void window.space.openSidebarApp("settings")}>
+                  <SlidersHorizontal size={18} />
+                  Customize
+                </button>
+              </div>
+            </div>
+
+            <div className="quick-actions-strip">
+              <button onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://www.google.com")}>
+                <Search size={18} />
+                Google
+              </button>
+              <button onClick={() => activeTab && void window.space.tabAction("pin", { tabId: activeTab.id })}>
+                <Pin size={18} />
+                Pin Tab
+              </button>
+              <button onClick={() => activeTab && void window.space.tabAction("split", { tabId: activeTab.id })}>
+                <SplitSquareHorizontal size={18} />
+                Split View
+              </button>
+              <button onClick={() => void window.space.tabAction("restore-closed")}>
+                <Clock3 size={18} />
+                Restore
+              </button>
+              <button onClick={() => void patchSettings({ enableExperimentalExtensions: !snapshot.settings.enableExperimentalExtensions })}>
+                <Puzzle size={18} />
+                Extensions {snapshot.settings.enableExperimentalExtensions ? "On" : "Labs"}
+              </button>
+            </div>
+
+            <section className="feature-matrix">
+              {featureGroups.map(({ title, Icon, status, items }) => (
+                <article className="feature-card" key={title}>
+                  <div className="feature-card-top">
+                    <Icon size={22} />
+                    <span>{status}</span>
+                  </div>
+                  <h2>{title}</h2>
+                  <div className="feature-tags">
+                    {items.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </section>
+
+            <div className="content-grid">
+              <section className="glass-panel">
+                <div className="panel-header">
+                  <h2>Speed Dial</h2>
+                  <span>{snapshot.settings.speedDial.length} shortcuts</span>
+                </div>
+                <div className="speed-dial-grid">
+                  {snapshot.settings.speedDial.map((entry) => (
+                    <button key={entry.id} className="dial-card" onClick={() => activeTab && void window.space.navigate(activeTab.id, entry.url)}>
+                      <div className="dial-badge">{entry.title.slice(0, 1)}</div>
+                      <strong>{entry.title}</strong>
+                      <span>{entry.url}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="glass-panel">
+                <div className="panel-header">
+                  <h2>GX Corner</h2>
+                  <span>Gaming feed</span>
+                </div>
+                <div className="feed-list">
+                  <article className="feed-card">
+                    <strong>Daily drop</strong>
+                    <p>Launch titles, bundle deals, and hardware promos belong here in the live feed integration.</p>
+                  </article>
+                  <article className="feed-card">
+                    <strong>Live wallpaper</strong>
+                    <p>Video backgrounds, shader overlays, and mood presets are scaffolded into the mod system.</p>
+                  </article>
+                </div>
+              </section>
+
+              <section className="glass-panel">
+                <div className="panel-header">
+                  <h2>Widgets</h2>
+                  <span>Weather, stats, news</span>
+                </div>
+                <div className="widget-stack">
+                  <div className="widget-card">
+                    <span>System load</span>
+                    <strong>{snapshot.settings.performanceProfile.backgroundTabPolicy.toUpperCase()}</strong>
+                  </div>
+                  <div className="widget-card">
+                    <span>Shields</span>
+                    <strong>{snapshot.settings.shieldDefaults.ads ? "ARMED" : "MANUAL"}</strong>
+                  </div>
+                  <div className="widget-card">
+                    <span>Mods</span>
+                    <strong>LOCAL + BUILT-IN</strong>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div className="customization-grid">
+              <section className="glass-panel">
+                <div className="panel-header">
+                  <h2>Themes</h2>
+                  <span>Built-in presets</span>
+                </div>
+                <div className="theme-grid">
+                  {themeOptions.map((theme) => (
+                    <button
+                      className={`theme-card ${snapshot.settings.theme === theme.id ? "active" : ""} theme-swatch-${theme.id}`}
+                      key={theme.id}
+                      onClick={() => void patchSettings({ theme: theme.id })}
+                    >
+                      <span>{theme.name}</span>
+                      <strong>{theme.hint}</strong>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="glass-panel">
+                <div className="panel-header">
+                  <h2>Mod Everything</h2>
+                  <span>Local GX mod system</span>
+                </div>
+                <div className="mod-grid">
+                  {[
+                    ["Colors", Brush],
+                    ["Sounds", Volume2],
+                    ["Cursors", MousePointer2],
+                    ["Shaders", Zap],
+                    ["Wallpapers", Wallpaper],
+                    ["Marketplace", Store]
+                  ].map(([label, Icon]) => {
+                    const ModIcon = Icon as LucideIcon;
+                    return (
+                      <button className="mod-tile" key={String(label)}>
+                        <ModIcon size={20} />
+                        <span>{String(label)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="inline-actions">
+                  <button onClick={() => void window.space.importMods()}>
+                    <PackageOpen size={17} />
+                    Import
+                  </button>
+                  <button onClick={() => void window.space.exportMods()}>
+                    <Download size={17} />
+                    Export
+                  </button>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div className="utility-dock">
+            <section className="glass-panel compact">
+              <div className="panel-header">
+                <h2>Shields</h2>
+                <span>Per-site control</span>
+              </div>
+              <div className="toggle-grid">
+                {renderShieldToggle("Ads", snapshot.settings.shieldDefaults.ads, (value) => window.space.setGlobalShields({ ads: value }))}
+                {renderShieldToggle("Trackers", snapshot.settings.shieldDefaults.trackers, (value) => window.space.setGlobalShields({ trackers: value }))}
+                {renderShieldToggle("HTTPS", snapshot.settings.shieldDefaults.httpsUpgrade, (value) => window.space.setGlobalShields({ httpsUpgrade: value }))}
+                {renderShieldToggle("Cookies", snapshot.settings.shieldDefaults.cookies !== "allow", (value) =>
+                  window.space.setGlobalShields({ cookies: value ? "block-third-party" : "allow" })
+                )}
+                {renderShieldToggle("Fingerprint", snapshot.settings.shieldDefaults.fingerprinting, (value) =>
+                  window.space.setGlobalShields({ fingerprinting: value })
+                )}
+                {renderShieldToggle("Scripts", snapshot.settings.shieldDefaults.scripts, (value) => window.space.setGlobalShields({ scripts: value }))}
+              </div>
+            </section>
+
+            <section className="glass-panel compact">
+              <div className="panel-header">
+                <h2>Tabs</h2>
+                <span>Search and islands</span>
+              </div>
+              <input className="embedded-input" placeholder="Search open tabs" value={tabSearch} onChange={(event) => setTabSearch(event.target.value)} />
+              <div className="tab-search-results">
+                {filteredTabs.slice(0, 6).map((tab) => (
+                  <button key={tab.id} className="search-result" onClick={() => void window.space.tabAction("activate", { tabId: tab.id })}>
+                    <strong>{tab.title}</strong>
+                    <span>{tab.url}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="inline-actions">
+                <button onClick={() => activeTab && void window.space.tabAction("pin", { tabId: activeTab.id })}>
+                  <Pin size={17} />
+                  Pin
+                </button>
+                <button onClick={() => activeTab && void window.space.tabAction("split", { tabId: activeTab.id })}>
+                  <SplitSquareHorizontal size={17} />
+                  Split
+                </button>
+              </div>
+            </section>
+
+            <section className="glass-panel compact">
+              <div className="panel-header">
+                <h2>History</h2>
+                <span>{snapshot.history.length} saved</span>
+              </div>
+              <div className="mini-list">
+                {snapshot.history.slice(0, 4).map((entry) => (
+                  <div className="mini-row" key={entry.id}>
+                    <button onClick={() => activeTab && void window.space.navigate(activeTab.id, entry.url)}>
+                      <strong>{entry.title}</strong>
+                      <span>{entry.url}</span>
+                    </button>
+                    <button className="icon-danger" title="Delete history item" onClick={() => void window.space.deleteHistory(entry.id)}>
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+                {snapshot.history.length === 0 && <div className="empty-note">No browsing history yet.</div>}
+              </div>
+              <div className="inline-actions">
+                <button onClick={() => void window.space.openSidebarApp("history")}>
+                  <History size={17} />
+                  Open
+                </button>
+                <button onClick={() => void window.space.clearHistory()}>
+                  <Trash2 size={17} />
+                  Clear All
+                </button>
+              </div>
+            </section>
+
+            <section className="glass-panel compact">
+              <div className="panel-header">
+                <h2>GX Control</h2>
+                <span>{snapshot.settings.performanceProfile.backgroundTabPolicy}</span>
+              </div>
+              <div className="profile-buttons">
+                {(["balanced", "limit", "aggressive"] as const).map((policy) => (
+                  <button
+                    key={policy}
+                    className={snapshot.settings.performanceProfile.backgroundTabPolicy === policy ? "active" : ""}
+                    onClick={() => void patchPerformance({ backgroundTabPolicy: policy })}
+                  >
+                    <Cpu size={17} />
+                    {policy}
+                  </button>
+                ))}
+              </div>
+              <div className="metric-strip">
+                <span>Sleep after {snapshot.settings.performanceProfile.suspendThresholdMinutes}m</span>
+                <span>Network {snapshot.settings.performanceProfile.throttleNetworkPreset}</span>
+              </div>
+            </section>
+
+            <section className="glass-panel compact">
+              <div className="panel-header">
+                <h2>AI Actions</h2>
+                <span>Active page</span>
+              </div>
+              <div className="tool-grid">
+                {[
+                  ["summarize", Sparkles],
+                  ["explain", Eye],
+                  ["rewrite", WandSparkles],
+                  ["translate", Languages],
+                  ["code", Code2]
+                ].map(([action, Icon]) => {
+                  const ActionIcon = Icon as LucideIcon;
+                  return (
+                    <button className="tool-button" key={String(action)} onClick={() => void window.space.runAiAction({ action: action as any, providerId: "chatgpt" })}>
+                      <ActionIcon size={17} />
+                      {String(action)}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="glass-panel compact">
+              <div className="panel-header">
+                <h2>Utilities</h2>
+                <span>Browser tools</span>
+              </div>
+              <div className="tool-grid">
+                <button className="tool-button" onClick={() => void window.space.takeScreenshot()}>
+                  <MonitorPlay size={17} />
+                  Screenshot
+                </button>
+                <button className="tool-button" onClick={() => void window.space.runCleaner(["cache", "cookies", "storage"])}>
+                  <Trash2 size={17} />
+                  Cleaner
+                </button>
+                <button className="tool-button" onClick={() => void window.space.openSidebarApp("music")}>
+                  <Music4 size={17} />
+                  Music
+                </button>
+                <button className="tool-button" onClick={() => void window.space.tabAction("tor-window")}>
+                  <Shield size={17} />
+                  Tor
+                </button>
+              </div>
+            </section>
+
+            <section className="glass-panel compact">
+              <div className="panel-header">
+                <h2>Settings</h2>
+                <span>{settingsSections.length} sections</span>
+              </div>
+              <div className="settings-chip-grid">
+                {settingsSections.map((section) => (
+                  <button key={section} onClick={() => void window.space.openSidebarApp("settings")}>
+                    {section}
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
+        </section>
+
+        {snapshot.sidebarOpen && (
+          <div className="sidebar-resize-rail">
+            <div className="sidebar-panel-meta">
+              <strong>{activeSidebarApp?.name ?? "Panel"}</strong>
+              <span>{snapshot.sidebarPinned ? "Pinned" : "Floating"}</span>
+            </div>
+            <div className="inline-actions">
+              <button onClick={() => void window.space.tabAction("toggle-sidebar-pin")}>
+                <Pin size={16} />
+                {snapshot.sidebarPinned ? "Unpin" : "Pin"}
+              </button>
+              <button onClick={() => void window.space.tabAction("close-sidebar")}>
+                <X size={16} />
+                Close
+              </button>
+            </div>
+            <input
+              type="range"
+              min={320}
+              max={520}
+              value={sidebarWidth}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                setSidebarWidth(value);
+                void window.space.resizeSidebar(value, snapshot.sidebarPinned);
+              }}
+            />
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function nextTheme(theme: ThemeId): ThemeId {
+  const values: ThemeId[] = ["gx-red", "neon-green", "electric-blue", "cyber-yellow", "dark", "light"];
+  return values[(values.indexOf(theme) + 1) % values.length];
+}
+
+function renderShieldToggle(label: string, active: boolean, onChange: (value: boolean) => void) {
+  return (
+    <button className={`shield-toggle ${active ? "active" : ""}`} onClick={() => void onChange(!active)}>
+      <span>{shieldIcon(label)}{label}</span>
+      <strong>{active ? "ON" : "OFF"}</strong>
+    </button>
+  );
+}
+
+function shieldIcon(label: string) {
+  const common = { size: 16, strokeWidth: 2.2 };
+  if (label === "Cookies") return <Cookie {...common} />;
+  if (label === "Fingerprint") return <Fingerprint {...common} />;
+  if (label === "HTTPS") return <BadgeCheck {...common} />;
+  return <Shield {...common} />;
+}
+
+function iconComponent(icon: string): LucideIcon {
+  const icons: Record<string, LucideIcon> = {
+    "sliders-horizontal": SlidersHorizontal,
+    history: History,
+    star: Bookmark,
+    download: Download,
+    "notebook-tabs": NotebookTabs,
+    "music-4": Music4,
+    "message-circle-more": MessageCircleMore,
+    "messages-square": MessagesSquare,
+    send: Send,
+    instagram: Camera,
+    "at-sign": AtSign,
+    "gamepad-2": Gamepad2,
+    "play-square": PlaySquare,
+    "panel-right-open": PanelRightOpen,
+    sparkles: Sparkles,
+    bot: Bot,
+    stars: Sparkles,
+    orbit: Orbit
+  };
+  return icons[icon] ?? ExternalLink;
+}

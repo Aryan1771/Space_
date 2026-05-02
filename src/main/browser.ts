@@ -1,0 +1,804 @@
+import { app, BrowserView, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import path from "node:path";
+import fs from "node:fs/promises";
+import { ElectronBlocker } from "@cliqz/adblocker-electron";
+import { parse as parseDomain } from "tldts";
+import { appStore } from "./store";
+import { IPC_CHANNELS } from "../shared/ipc";
+import { defaultSettings, defaultShieldConfig, sidebarApps } from "../shared/defaults";
+import type {
+  AiActionPayload,
+  AppSettings,
+  BookmarkRecord,
+  BrowserStateSnapshot,
+  DownloadRecord,
+  HistoryRecord,
+  ModManifest,
+  ShieldConfig,
+  SiteShieldRule,
+  TabRecord
+} from "../shared/types";
+
+type BrowserTab = {
+  record: TabRecord;
+  view: BrowserView;
+  partition: string;
+};
+
+const blockedHosts = ["doubleclick.net", "googleadservices.com", "googlesyndication.com"];
+const adBlockLists = "https://easylist.to/easylist/easylist.txt";
+const railWidth = 86;
+const chromeHeight = 160;
+const utilityDockWidth = 358;
+
+export class SpaceBrowserApp {
+  private mainWindow: BrowserWindow | null = null;
+  private sidebarView: BrowserView | null = null;
+  private tabs = new Map<string, BrowserTab>();
+  private downloads: DownloadRecord[] = [];
+  private closedTabs: TabRecord[] = [];
+  private activeTabId: string | null = null;
+  private sidebarOpen = false;
+  private sidebarPinned = true;
+  private sidebarWidth = 380;
+  private activeSidebarAppId: string | null = null;
+  private blocker: ElectronBlocker | null = null;
+  private readonly rendererUrl = process.env.VITE_DEV_SERVER_URL;
+
+  async start() {
+    await app.whenReady();
+    await this.loadBlocker();
+    this.registerProtocols();
+    this.createWindow();
+    this.registerIpc();
+    this.registerAppEvents();
+    await this.createTab({ url: "space://start", private: false });
+  }
+
+  private async loadBlocker() {
+    try {
+      this.blocker = await ElectronBlocker.fromLists(fetch, [adBlockLists]);
+    } catch {
+      this.blocker = null;
+    }
+  }
+
+  private registerProtocols() {
+    app.setName("Space_");
+  }
+
+  private createWindow() {
+    this.mainWindow = new BrowserWindow({
+      width: 1600,
+      height: 980,
+      minWidth: 1200,
+      minHeight: 760,
+      title: "Space_",
+      backgroundColor: "#09070d",
+      autoHideMenuBar: true,
+      icon: path.join(app.getAppPath(), "assets", "app.ico"),
+      webPreferences: {
+        preload: path.join(app.getAppPath(), "dist", "preload", "index.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false
+      }
+    });
+
+    this.mainWindow.on("resize", () => this.layoutViews());
+    this.mainWindow.on("closed", () => {
+      this.mainWindow = null;
+    });
+    this.mainWindow.webContents.on("page-title-updated", (event) => {
+      event.preventDefault();
+    });
+    this.mainWindow.webContents.on("did-finish-load", () => {
+      this.layoutViews();
+      this.updateWindowTitle();
+    });
+
+    if (this.rendererUrl) {
+      void this.mainWindow.loadURL(this.rendererUrl);
+    } else {
+      void this.mainWindow.loadFile(path.join(app.getAppPath(), "dist", "renderer", "index.html"));
+    }
+  }
+
+  private registerAppEvents() {
+    app.on("window-all-closed", () => {
+      if (process.platform !== "darwin") {
+        app.quit();
+      }
+    });
+
+    app.on("activate", async () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        this.createWindow();
+        await this.createTab({ url: "space://start", private: false });
+      }
+    });
+  }
+
+  private registerIpc() {
+    ipcMain.handle(IPC_CHANNELS.browserSnapshot, () => this.snapshot());
+    ipcMain.handle(IPC_CHANNELS.tabAction, async (_event, { action, payload }) => this.handleTabAction(action, payload ?? {}));
+    ipcMain.handle(IPC_CHANNELS.navigate, async (_event, { tabId, value }) => this.navigate(tabId, value));
+    ipcMain.handle(IPC_CHANNELS.sidebarOpen, async (_event, { appId }) => this.openSidebarApp(appId));
+    ipcMain.handle(IPC_CHANNELS.sidebarResize, async (_event, { width, pinned }) => {
+      this.sidebarWidth = Math.max(320, Math.min(520, width));
+      this.sidebarPinned = pinned;
+      this.layoutViews();
+      this.publishSnapshot();
+    });
+    ipcMain.handle(IPC_CHANNELS.settingsPatch, async (_event, patch) => {
+      const settings = { ...this.getSettings(), ...patch } as AppSettings;
+      appStore.set("settings", settings);
+      this.publishSnapshot();
+    });
+    ipcMain.handle(IPC_CHANNELS.shieldSetGlobal, async (_event, patch) => {
+      const settings = this.getSettings();
+      appStore.set("settings", { ...settings, shieldDefaults: { ...settings.shieldDefaults, ...patch } });
+      this.publishSnapshot();
+    });
+    ipcMain.handle(IPC_CHANNELS.shieldSetSite, async (_event, rule: SiteShieldRule) => {
+      const settings = this.getSettings();
+      const rest = settings.siteShieldRules.filter((entry: SiteShieldRule) => entry.hostname !== rule.hostname);
+      appStore.set("settings", { ...settings, siteShieldRules: [...rest, rule] });
+      this.publishSnapshot();
+    });
+    ipcMain.handle(IPC_CHANNELS.bookmarksToggle, async (_event, { tabId }) => this.toggleBookmark(tabId));
+    ipcMain.handle(IPC_CHANNELS.historyClear, async () => {
+      appStore.set("history", []);
+      this.publishSnapshot();
+    });
+    ipcMain.handle(IPC_CHANNELS.historyDelete, async (_event, { id }) => {
+      const history = appStore.get("history") ?? [];
+      appStore.set(
+        "history",
+        history.filter((entry: HistoryRecord) => entry.id !== id)
+      );
+      this.publishSnapshot();
+    });
+    ipcMain.handle(IPC_CHANNELS.modsImport, async () => this.importMods());
+    ipcMain.handle(IPC_CHANNELS.modsExport, async () => this.exportMods());
+    ipcMain.handle(IPC_CHANNELS.modsToggle, async (_event, { modId, enabled }) => {
+      const mods = (appStore.get("mods") ?? []).map((mod: ModManifest & { enabled: boolean }) => (mod.id === modId ? { ...mod, enabled } : mod));
+      appStore.set("mods", mods);
+      this.publishSnapshot();
+    });
+    ipcMain.handle(IPC_CHANNELS.aiRun, async (_event, payload: AiActionPayload) => this.runAiAction(payload));
+    ipcMain.handle(IPC_CHANNELS.screenshot, async () => this.takeScreenshot());
+    ipcMain.handle(IPC_CHANNELS.cleaner, async (_event, targets: string[]) => this.runCleaner(targets));
+  }
+
+  private getSettings() {
+    return appStore.get("settings") ?? defaultSettings;
+  }
+
+  private createPartition(isPrivate: boolean) {
+    return isPrivate ? `space-private-${Date.now()}-${Math.random()}` : `persist:space-default`;
+  }
+
+  private async createTab(input: { url: string; private: boolean; pinned?: boolean; split?: boolean }) {
+    const id = `tab-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const partition = this.createPartition(input.private);
+    const tabSession = session.fromPartition(partition, { cache: !input.private });
+    this.configureSession(tabSession);
+
+    const view = new BrowserView({
+      webPreferences: {
+        partition,
+        sandbox: true,
+        backgroundThrottling: this.getSettings().performanceProfile.backgroundTabPolicy !== "aggressive"
+      }
+    });
+
+    if (this.blocker) {
+      this.blocker.enableBlockingInSession(tabSession);
+    }
+
+    const shieldState = this.resolveShieldState(input.url);
+    const record: TabRecord = {
+      id,
+      title: "New Tab",
+      url: input.url,
+      loading: true,
+      private: input.private,
+      shieldState,
+      workspaceId: "primary",
+      islandId: parseDomain(input.url).domain ?? "general",
+      isPinned: Boolean(input.pinned),
+      isMuted: false,
+      isSplitParticipant: Boolean(input.split),
+      isSuspended: false,
+      lastActiveAt: Date.now()
+    };
+
+    const browserTab: BrowserTab = { record, view, partition };
+    this.tabs.set(id, browserTab);
+    this.bindViewEvents(browserTab, tabSession);
+    this.mainWindow?.addBrowserView(view);
+    this.activeTabId = id;
+
+    if (this.isInternalStartUrl(input.url)) {
+      this.setTabToStartPage(browserTab, input.url);
+      this.layoutViews();
+      this.publishSnapshot();
+      this.updateWindowTitle();
+      return;
+    }
+
+    await view.webContents.loadURL(this.normalizeUrl(input.url));
+    this.layoutViews();
+    this.publishSnapshot();
+  }
+
+  private bindViewEvents(tab: BrowserTab, tabSession: Electron.Session) {
+    const wc = tab.view.webContents;
+    wc.setWindowOpenHandler(({ url }) => {
+      void this.createTab({ url, private: tab.record.private });
+      return { action: "deny" };
+    });
+    wc.on("page-title-updated", (_event, title) => {
+      tab.record.title = title || "New Tab";
+      this.updateWindowTitle();
+      this.publishSnapshot();
+    });
+    wc.on("did-start-loading", () => {
+      tab.record.loading = true;
+      this.publishSnapshot();
+    });
+    wc.on("did-stop-loading", async () => {
+      tab.record.loading = false;
+      tab.record.url = wc.getURL();
+      tab.record.favicon = this.buildFaviconUrl(wc.getURL());
+      tab.record.shieldState = this.resolveShieldState(wc.getURL());
+      this.recordHistory(tab.record);
+      this.applyPerformancePolicy(tab.record.id);
+      this.updateWindowTitle();
+      this.publishSnapshot();
+    });
+    wc.on("did-navigate", (_event, url) => {
+      tab.record.url = url;
+      tab.record.shieldState = this.resolveShieldState(url);
+      this.publishSnapshot();
+    });
+    wc.on("found-in-page", () => this.publishSnapshot());
+    wc.setBackgroundThrottling(this.getSettings().performanceProfile.backgroundTabPolicy !== "aggressive");
+    tabSession.on("will-download", (_event, item) => {
+      const entry: DownloadRecord = {
+        id: `${Date.now()}`,
+        fileName: item.getFilename(),
+        url: item.getURL(),
+        status: "progressing",
+        receivedBytes: 0,
+        totalBytes: item.getTotalBytes()
+      };
+      this.downloads = [entry, ...this.downloads];
+      item.on("updated", () => {
+        entry.receivedBytes = item.getReceivedBytes();
+        entry.totalBytes = item.getTotalBytes();
+        this.publishSnapshot();
+      });
+      item.once("done", (_evt, state) => {
+        entry.status = state === "completed" ? "completed" : state === "cancelled" ? "cancelled" : "interrupted";
+        entry.savePath = item.getSavePath();
+        this.publishSnapshot();
+      });
+    });
+  }
+
+  private configureSession(tabSession: Electron.Session) {
+    const settings = this.getSettings();
+    tabSession.webRequest.onBeforeRequest((details, callback) => {
+      const merged = this.resolveShieldState(details.url);
+      if (merged.httpsUpgrade && details.url.startsWith("http://")) {
+        callback({ redirectURL: details.url.replace("http://", "https://") });
+        return;
+      }
+      if ((merged.ads || merged.trackers) && blockedHosts.some((host) => details.url.includes(host))) {
+        callback({ cancel: true });
+        return;
+      }
+      callback({});
+    });
+
+    tabSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      const merged = this.resolveShieldState(details.url);
+      if (merged.cookies !== "allow") {
+        delete details.requestHeaders.Cookie;
+      }
+      callback({ requestHeaders: details.requestHeaders });
+    });
+
+    tabSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission !== "notifications");
+    });
+
+    if (settings.performanceProfile.throttleNetworkPreset !== "off") {
+      // Scaffolding for devtools-network throttling; policy is reflected in UI/state.
+    }
+  }
+
+  private resolveShieldState(url: string): ShieldConfig {
+    const settings = this.getSettings();
+    let resolved = { ...settings.shieldDefaults };
+    const hostname = this.hostFor(url);
+    const site = settings.siteShieldRules.find((entry: SiteShieldRule) => entry.hostname === hostname);
+    if (site) {
+      resolved = { ...resolved, ...site.overrides };
+    }
+    return resolved;
+  }
+
+  private hostFor(url: string) {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return "";
+    }
+  }
+
+  private normalizeUrl(value: string) {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("space://")) return trimmed;
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+    if (trimmed.includes(".") && !trimmed.includes(" ")) return `https://${trimmed}`;
+    return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
+  }
+
+  private isInternalStartUrl(value: string) {
+    return value.trim().toLowerCase() === "space://start";
+  }
+
+  private setTabToStartPage(tab: BrowserTab, url = "space://start") {
+    tab.record.url = url;
+    tab.record.title = tab.record.private ? "Private Start" : "Start Page";
+    tab.record.loading = false;
+    tab.record.favicon = undefined;
+    tab.record.shieldState = { ...this.getSettings().shieldDefaults };
+  }
+
+  private async handleTabAction(action: string, payload: Record<string, unknown>) {
+    if (action === "new") return this.createTab({ url: "space://start", private: Boolean(payload.private) });
+    if (action === "close" && typeof payload.tabId === "string") return this.closeTab(payload.tabId);
+    if (action === "activate" && typeof payload.tabId === "string") return this.activateTab(payload.tabId);
+    if (action === "restore-closed") return this.restoreClosedTab();
+    if (action === "pin" && typeof payload.tabId === "string") return this.togglePin(payload.tabId);
+    if (action === "back" && typeof payload.tabId === "string") return this.goBack(payload.tabId);
+    if (action === "forward" && typeof payload.tabId === "string") return this.goForward(payload.tabId);
+    if (action === "reload" && typeof payload.tabId === "string") return this.reloadTab(payload.tabId);
+    if (action === "private-window") return this.createTab({ url: "space://start", private: true });
+    if (action === "split" && typeof payload.tabId === "string") return this.splitTab(payload.tabId);
+    if (action === "close-sidebar") return this.closeSidebar();
+    if (action === "toggle-sidebar-pin") return this.toggleSidebarPin();
+    if (action === "tor-window") {
+      dialog.showMessageBox(this.mainWindow!, {
+        type: "info",
+        title: "Space_",
+        message: "Private Window with Tor is scaffolded in v1 and not available yet."
+      });
+      return;
+    }
+  }
+
+  private async navigate(tabId: string, value: string) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    const url = this.normalizeUrl(value);
+    if (this.isInternalStartUrl(url)) {
+      this.setTabToStartPage(tab, url);
+      this.activeTabId = tabId;
+      this.layoutViews();
+      this.publishSnapshot();
+      this.updateWindowTitle();
+      return;
+    }
+
+    tab.record.loading = true;
+    tab.record.url = url;
+    await tab.view.webContents.loadURL(url);
+    this.activeTabId = tabId;
+    this.layoutViews();
+    this.publishSnapshot();
+  }
+
+  private activateTab(tabId: string) {
+    if (!this.tabs.has(tabId)) return;
+    this.activeTabId = tabId;
+    const tab = this.tabs.get(tabId)!;
+    tab.record.lastActiveAt = Date.now();
+    this.layoutViews();
+    this.updateWindowTitle();
+    this.publishSnapshot();
+  }
+
+  private closeTab(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    this.closedTabs.unshift({ ...tab.record });
+    this.mainWindow?.removeBrowserView(tab.view);
+    tab.view.webContents.close();
+    this.tabs.delete(tabId);
+    const next = [...this.tabs.keys()][0] ?? null;
+    this.activeTabId = next;
+    this.layoutViews();
+    this.updateWindowTitle();
+    this.publishSnapshot();
+  }
+
+  private async restoreClosedTab() {
+    const entry = this.closedTabs.shift();
+    if (!entry) return;
+    await this.createTab({ url: entry.url, private: entry.private, pinned: entry.isPinned });
+  }
+
+  private togglePin(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    tab.record.isPinned = !tab.record.isPinned;
+    this.publishSnapshot();
+  }
+
+  private goBack(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (tab?.view.webContents.navigationHistory.canGoBack()) {
+      tab.view.webContents.navigationHistory.goBack();
+    }
+  }
+
+  private goForward(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (tab?.view.webContents.navigationHistory.canGoForward()) {
+      tab.view.webContents.navigationHistory.goForward();
+    }
+  }
+
+  private reloadTab(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    tab?.view.webContents.reload();
+  }
+
+  private async splitTab(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    tab.record.isSplitParticipant = true;
+    await this.createTab({ url: tab.record.url, private: tab.record.private, split: true });
+  }
+
+  private openSidebarApp(appId: string) {
+    if (this.activeSidebarAppId === appId && this.sidebarOpen) {
+      this.closeSidebar();
+      return;
+    }
+
+    this.activeSidebarAppId = appId;
+    this.sidebarOpen = true;
+    if (!this.mainWindow) return;
+
+    if (!this.sidebarView) {
+      this.sidebarView = new BrowserView({
+        webPreferences: {
+          partition: "persist:space-sidebar",
+          sandbox: true
+        }
+      });
+      this.mainWindow.addBrowserView(this.sidebarView);
+    }
+
+    const appEntry = sidebarApps.find((entry) => entry.id === appId);
+    if (!appEntry) return;
+
+    if (appEntry.url.startsWith("space://")) {
+      const html = this.renderInternalPanel(appEntry.id, appEntry.name);
+      this.sidebarView.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    } else {
+      void this.sidebarView.webContents.loadURL(appEntry.url);
+    }
+    this.layoutViews();
+    this.publishSnapshot();
+  }
+
+  private closeSidebar() {
+    this.sidebarOpen = false;
+    this.activeSidebarAppId = null;
+    this.layoutViews();
+    this.publishSnapshot();
+  }
+
+  private toggleSidebarPin() {
+    this.sidebarPinned = !this.sidebarPinned;
+    this.layoutViews();
+    this.publishSnapshot();
+  }
+
+  private renderInternalPanel(appId: string, title: string) {
+    const panelData: Record<string, { kicker: string; items: string[] }> = {
+      settings: {
+        kicker: "Space_ control center",
+        items: [
+          "Appearance, themes, mods, sounds, sidebar layout",
+          "Home page widgets, tab behavior, Shields privacy",
+          "GX Control, AI providers, advanced browser labs"
+        ]
+      },
+      history: {
+        kicker: "Browsing timeline",
+        items: (appStore.get("history") ?? []).slice(0, 12).map((entry: HistoryRecord) => `${entry.title} - ${entry.url}`)
+      },
+      bookmarks: {
+        kicker: "Saved pages",
+        items: (appStore.get("bookmarks") ?? []).slice(0, 12).map((entry: BookmarkRecord) => `${entry.title} - ${entry.url}`)
+      },
+      downloads: {
+        kicker: "Download manager",
+        items: this.downloads.length
+          ? this.downloads.slice(0, 12).map((entry) => `${entry.fileName} - ${entry.status}`)
+          : ["Downloads will appear here as files are saved."]
+      },
+      notes: {
+        kicker: "Quick notes",
+        items: this.getSettings().notes.length ? this.getSettings().notes : ["Notes storage is ready for richer editing in v1."]
+      }
+    };
+    const data = panelData[appId] ?? {
+      kicker: "Space_ panel",
+      items: ["This sidebar surface is wired and ready for deeper workflows."]
+    };
+    const cards = data.items.length ? data.items : ["Nothing here yet."];
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 80% 10%, rgba(94, 208, 255, 0.16), transparent 28%),
+          linear-gradient(180deg, #10111a 0%, #090a11 100%);
+        color: #f6f7ff;
+        font: 14px "Segoe UI", system-ui, sans-serif;
+        padding: 24px;
+      }
+      h1 { margin: 6px 0 8px; color: #ffffff; font-size: 28px; }
+      .kicker { color: #5ed0ff; text-transform: uppercase; letter-spacing: .14em; font-size: 11px; font-weight: 800; }
+      .card {
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(255,255,255,.055);
+        border-radius: 18px;
+        padding: 14px;
+        margin: 10px 0;
+        color: #cbd2ef;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+      .pill {
+        display: inline-flex;
+        border: 1px solid rgba(94,208,255,.28);
+        border-radius: 999px;
+        padding: 8px 12px;
+        margin-top: 10px;
+        color: #9fdcff;
+        background: rgba(94,208,255,.08);
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="kicker">${data.kicker}</div>
+    <h1>${title}</h1>
+    ${cards.map((item) => `<div class="card">${this.escapeHtml(item)}</div>`).join("")}
+    <div class="pill">Pinned, resizable sidebar panel</div>
+  </body>
+</html>`;
+  }
+
+  private escapeHtml(value: string) {
+    return value.replace(/[&<>"']/g, (char) => {
+      const map: Record<string, string> = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      };
+      return map[char];
+    });
+  }
+
+  private layoutViews() {
+    if (!this.mainWindow) return;
+    const [width, height] = this.mainWindow.getContentSize();
+    const panelWidth = this.sidebarOpen ? this.sidebarWidth : 0;
+    const contentX = railWidth + panelWidth;
+    const mainWidth = width - contentX;
+    const browserWidth = Math.max(700, mainWidth - utilityDockWidth);
+    const splitTabs = [...this.tabs.values()].filter((tab) => tab.record.isSplitParticipant);
+    const active = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+    const showBrowserSurface = !(active?.record.url.startsWith("space://start"));
+    const visibleViews: BrowserView[] = [];
+
+    for (const tab of this.tabs.values()) {
+      const isActive = this.activeTabId === tab.record.id || (splitTabs.length > 0 && tab.record.isSplitParticipant);
+      const shouldShow = isActive && showBrowserSurface;
+      tab.view.setBounds({ x: contentX, y: chromeHeight, width: browserWidth, height: height - chromeHeight });
+      tab.view.webContents.setAudioMuted(tab.record.isMuted);
+      tab.view.setAutoResize({ width: true, height: true });
+      tab.view.webContents.setBackgroundThrottling(this.getSettings().performanceProfile.backgroundTabPolicy === "balanced");
+      tab.view.webContents.setVisualZoomLevelLimits(1, 3).catch(() => {});
+      if (!shouldShow) {
+        tab.view.setBounds({ x: -20000, y: -20000, width: 10, height: 10 });
+      } else {
+        visibleViews.push(tab.view);
+      }
+    }
+
+    if (splitTabs.length >= 2) {
+      const visible = splitTabs.slice(0, 2);
+      const splitWidth = Math.floor(browserWidth / 2);
+      visible[0].view.setBounds({ x: contentX, y: chromeHeight, width: splitWidth, height: height - chromeHeight });
+      visible[1].view.setBounds({ x: contentX + splitWidth, y: chromeHeight, width: browserWidth - splitWidth, height: height - chromeHeight });
+      visibleViews.push(visible[0].view, visible[1].view);
+    }
+
+    for (const view of visibleViews) {
+      this.mainWindow.setTopBrowserView(view);
+      view.webContents.focus();
+    }
+
+    if (this.sidebarView) {
+      if (this.sidebarOpen) {
+        this.sidebarView.setBounds({ x: railWidth, y: 0, width: panelWidth, height });
+        this.sidebarView.setAutoResize({ height: true });
+        this.mainWindow.setTopBrowserView(this.sidebarView);
+      } else {
+        this.sidebarView.setBounds({ x: -10000, y: -10000, width: 10, height: 10 });
+      }
+    }
+  }
+
+  private updateWindowTitle() {
+    if (!this.mainWindow) return;
+    const tab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+    this.mainWindow.setTitle(tab ? `Space_ - ${tab.record.title}` : "Space_");
+  }
+
+  private recordHistory(tab: TabRecord) {
+    if (tab.private) return;
+    const history = appStore.get("history") ?? [];
+    const entry: HistoryRecord = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      title: tab.title,
+      url: tab.url,
+      visitedAt: Date.now()
+    };
+    appStore.set("history", [entry, ...history].slice(0, 400));
+  }
+
+  private toggleBookmark(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    const bookmarks = appStore.get("bookmarks") ?? [];
+    const existing = bookmarks.find((entry: BookmarkRecord) => entry.url === tab.record.url);
+    if (existing) {
+      appStore.set("bookmarks", bookmarks.filter((entry: BookmarkRecord) => entry.id !== existing.id));
+    } else {
+      const bookmark: BookmarkRecord = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        title: tab.record.title,
+        url: tab.record.url,
+        createdAt: Date.now()
+      };
+      appStore.set("bookmarks", [bookmark, ...bookmarks]);
+    }
+    this.publishSnapshot();
+  }
+
+  private async importMods() {
+    if (!this.mainWindow) return;
+    const result = await dialog.showOpenDialog(this.mainWindow, {
+      properties: ["openFile"],
+      filters: [{ name: "JSON Mods", extensions: ["json"] }]
+    });
+    if (result.canceled || result.filePaths.length === 0) return;
+    const raw = await fs.readFile(result.filePaths[0], "utf8");
+    const mod = JSON.parse(raw) as ModManifest;
+    const mods = appStore.get("mods") ?? [];
+    appStore.set("mods", [...mods.filter((entry: ModManifest & { enabled: boolean }) => entry.id !== mod.id), { ...mod, enabled: true }]);
+    this.publishSnapshot();
+  }
+
+  private async exportMods() {
+    if (!this.mainWindow) return;
+    const result = await dialog.showSaveDialog(this.mainWindow, {
+      defaultPath: "space-mods.json",
+      filters: [{ name: "JSON", extensions: ["json"] }]
+    });
+    if (result.canceled || !result.filePath) return;
+    await fs.writeFile(result.filePath, JSON.stringify(appStore.get("mods") ?? [], null, 2), "utf8");
+  }
+
+  private async runAiAction(payload: AiActionPayload) {
+    const tab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+    if (!tab) return;
+    const selected = await tab.view.webContents.executeJavaScript("window.getSelection ? String(window.getSelection()) : ''", true).catch(() => "");
+    const url = tab.record.url;
+    const title = tab.record.title;
+    const appEntry = sidebarApps.find((entry) => entry.id === payload.providerId);
+    const targetUrl = appEntry?.url ?? this.getSettings().customAiUrl;
+    this.openSidebarApp(payload.providerId);
+    if (this.sidebarView) {
+      const query = encodeURIComponent(`${payload.action.toUpperCase()}\n\nTitle: ${title}\nURL: ${url}\n\n${selected || "Use the current page context."}`);
+      if (targetUrl.includes("chat.openai.com")) {
+        await this.sidebarView.webContents.loadURL(`${targetUrl}/?q=${query}`);
+      }
+    }
+  }
+
+  private async takeScreenshot() {
+    const tab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+    if (!tab || !this.mainWindow) return;
+    const image = await tab.view.webContents.capturePage();
+    const result = await dialog.showSaveDialog(this.mainWindow, {
+      defaultPath: `space-shot-${Date.now()}.png`,
+      filters: [{ name: "PNG", extensions: ["png"] }]
+    });
+    if (!result.canceled && result.filePath) {
+      await fs.writeFile(result.filePath, image.toPNG());
+      shell.showItemInFolder(result.filePath);
+    }
+  }
+
+  private async runCleaner(targets: string[]) {
+    const tabSessions = new Set([...this.tabs.values()].map((entry) => session.fromPartition(entry.partition)));
+    for (const tabSession of tabSessions) {
+      if (targets.includes("cache")) await tabSession.clearCache();
+      if (targets.includes("cookies")) await tabSession.clearStorageData({ storages: ["cookies"] });
+      if (targets.includes("storage")) await tabSession.clearStorageData();
+    }
+  }
+
+  private applyPerformancePolicy(tabId: string) {
+    const profile = this.getSettings().performanceProfile;
+    const now = Date.now();
+    for (const [id, tab] of this.tabs) {
+      if (id === tabId) continue;
+      if (profile.backgroundTabPolicy === "aggressive" && now - tab.record.lastActiveAt > profile.suspendThresholdMinutes * 60_000) {
+        tab.record.isSuspended = true;
+        tab.view.webContents.setBackgroundThrottling(false);
+      }
+    }
+  }
+
+  private buildFaviconUrl(url: string) {
+    try {
+      const { origin } = new URL(url);
+      return `${origin}/favicon.ico`;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private snapshot(): BrowserStateSnapshot {
+    return {
+      tabs: [...this.tabs.values()]
+        .map((entry) => ({ ...entry.record }))
+        .sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || b.lastActiveAt - a.lastActiveAt),
+      activeTabId: this.activeTabId,
+      bookmarks: appStore.get("bookmarks") ?? [],
+      history: appStore.get("history") ?? [],
+      downloads: this.downloads,
+      settings: this.getSettings(),
+      sidebarOpen: this.sidebarOpen,
+      sidebarPinned: this.sidebarPinned,
+      activeSidebarAppId: this.activeSidebarAppId
+    };
+  }
+
+  private publishSnapshot() {
+    if (!this.mainWindow) return;
+    this.mainWindow.webContents.send(IPC_CHANNELS.browserSnapshot, this.snapshot());
+  }
+}

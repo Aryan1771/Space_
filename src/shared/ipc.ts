@@ -1,0 +1,21 @@
+export const IPC_CHANNELS = {
+  browserSnapshot: "browser:snapshot",
+  tabAction: "tab:action",
+  navigate: "tab:navigate",
+  sidebarOpen: "sidebar:open",
+  sidebarResize: "sidebar:resize",
+  settingsGet: "settings:get",
+  settingsPatch: "settings:patch",
+  shieldSetGlobal: "shields:set-global",
+  shieldSetSite: "shields:set-site",
+  bookmarksToggle: "bookmarks:toggle",
+  historyClear: "history:clear",
+  historyDelete: "history:delete",
+  downloadsAction: "downloads:action",
+  modsImport: "mods:import",
+  modsExport: "mods:export",
+  modsToggle: "mods:toggle",
+  aiRun: "ai:run",
+  screenshot: "tools:screenshot",
+  cleaner: "tools:cleaner"
+} as const;

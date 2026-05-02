@@ -1,47 +1,46 @@
 # Space_
 
-Space_ is a native C++ Windows browser shell with an Opera GX-inspired interface. It uses Microsoft WebView2 for real website compatibility, so normal sites such as Google, YouTube, ChatGPT, WhatsApp Web, Discord, Telegram, and Twitch render like they do in modern browsers.
+Space_ is a Chromium-based desktop browser built with Electron, React, Tailwind, and TypeScript. It combines an Opera GX-inspired UI with Brave-style Shields, GX customization surfaces, AI sidebar tools, and performance controls.
 
-The app itself is not Python. The window, sidebar, navigation chrome, icon handling, theme system, and panel behavior are implemented in C++/Win32.
+## What Is Included
 
-## Features
+- Chromium-backed browsing through Electron.
+- Opera GX-style browser chrome with a neon sidebar, tab strip, address bar, start page, speed dial, widgets, and GX-style feature panels.
+- Brave-style Shields controls for ads, trackers, cookies, HTTPS upgrade, fingerprinting hardening, scripts, and consent blocking.
+- Sidebar apps for settings, history, bookmarks, downloads, notes, music, social apps, and AI tools.
+- Theme presets: GX Red, Neon Green, Electric Blue, Cyber Yellow, Dark Mode, and Light Mode.
+- GX Mods scaffold with local import/export for JSON mod manifests.
+- GX Control scaffold for background tab behavior, suspension policy, network presets, and animation levels.
+- Utilities for screenshots, cleaner actions, downloads, bookmarks, private tabs, and Tor/VPN/sync surfaces marked as future work.
 
-- Native Windows C++ app named `Space_`
-- Uses `assets/app.ico` for the executable and title bar icon
-- Chromium/WebView2 page engine for modern website compatibility
-- Opera GX-style left sidebar with custom drawn icons
-- Social sidebar apps: ChatGPT, WhatsApp Web, Telegram, Discord, and Twitch
-- Sidebar app panel with pin/unpin, reload, open-in-main-tab, and close controls
-- Browser navigation bar with back, forward, reload, home, address field, Go, and Enter-to-search
-- Google search from the address bar
-- Safety badge that shows `Tick` for HTTPS pages and `Risk` for insecure or failed pages
-- Multiple built-in themes: GX dark, GX red, neon green, and Chrome light
-- VS Code build/run/debug tasks configured for MSVC
+## Run Space_
 
-## Requirements
-
-- Windows 10 or Windows 11
-- Microsoft Edge WebView2 Runtime. Most Windows 10/11 systems already have it; if not, install the Evergreen Runtime from Microsoft.
-- Visual Studio 2022 Community or Build Tools with `Desktop development with C++`
-
-`build.ps1` downloads the WebView2 SDK into `deps/` automatically when missing. That folder is ignored by Git.
-
-## Build And Run
-
-From PowerShell in this repo:
+Double-click:
 
 ```powershell
-.\build.ps1
-.\build\Space_.exe
+run-space.bat
 ```
 
-In VS Code:
+Or run from VS Code:
 
-- Open `C:\Users\aryan\Documents\GitHub\WebBrowser`
-- Press `Ctrl+Shift+B` to build
-- Run `Terminal > Run Task > Run Space_`
-- Or use `Run and Debug > Debug Space_`
+```powershell
+npm install
+npm run build
+npm start
+```
 
-## Notes
+The VS Code task **Run Space_** builds and launches the Electron app.
 
-This version intentionally uses WebView2 so the browser is actually usable on normal websites today. Building a fully independent Chrome-level engine from scratch would require a complete HTML/CSS/JavaScript engine, networking stack, media pipeline, sandboxing, storage, accessibility, and years of work.
+## Development
+
+```powershell
+npm install
+npm run dev
+```
+
+## Production build
+
+```powershell
+npm run build
+npm start
+```

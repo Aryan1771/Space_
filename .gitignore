@@ -1,7 +1,11 @@
+node_modules/
+dist/
+release/
+.vite/
+.turbo/
+.vs/
 build/
 out/
-src/output/
-.vs/
 deps/
 .space_webview/
 *.exe
@@ -9,5 +13,5 @@ deps/
 *.o
 *.ilk
 *.pdb
-*.py[cod]
+*.tsbuildinfo
 __pycache__/

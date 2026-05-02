@@ -2,14 +2,16 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug Space_",
-      "type": "cppvsdbg",
+      "name": "Run Space_ Electron",
+      "type": "node",
       "request": "launch",
-      "program": "${workspaceFolder}/build/Space_.exe",
-      "args": [],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "start"
+      ],
       "cwd": "${workspaceFolder}",
-      "console": "externalTerminal",
-      "preLaunchTask": "Build Space_"
+      "preLaunchTask": "Build Space_",
+      "console": "integratedTerminal"
     }
   ]
 }

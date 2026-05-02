@@ -4,12 +4,10 @@
     {
       "label": "Build Space_",
       "type": "shell",
-      "command": "powershell",
+      "command": "npm",
       "args": [
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "${workspaceFolder}/build.ps1"
+        "run",
+        "build"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -18,13 +16,29 @@
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": "$msCompile"
+      "problemMatcher": "$tsc"
     },
     {
       "label": "Run Space_",
       "type": "shell",
-      "command": "${workspaceFolder}/build/Space_.exe",
+      "command": "npm",
+      "args": [
+        "start"
+      ],
       "dependsOn": "Build Space_",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Dev Space_",
+      "type": "shell",
+      "command": "npm",
+      "args": [
+        "run",
+        "dev"
+      ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
