@@ -10,10 +10,12 @@ const api = {
     return () => ipcRenderer.off(IPC_CHANNELS.browserSnapshot, wrapped);
   },
   tabAction: (action: string, payload?: Record<string, unknown>) => ipcRenderer.invoke(IPC_CHANNELS.tabAction, { action, payload }),
+  reorderTab: (tabId: string, targetTabId: string) => ipcRenderer.invoke(IPC_CHANNELS.tabReorder, { tabId, targetTabId }),
   navigate: (tabId: string, value: string) => ipcRenderer.invoke(IPC_CHANNELS.navigate, { tabId, value }),
   openSidebarApp: (appId: string) => ipcRenderer.invoke(IPC_CHANNELS.sidebarOpen, { appId }),
   resizeSidebar: (width: number, pinned: boolean) => ipcRenderer.invoke(IPC_CHANNELS.sidebarResize, { width, pinned }),
   setUtilityDockOpen: (open: boolean) => ipcRenderer.invoke(IPC_CHANNELS.uiSetUtilityDock, { open }),
+  windowControl: (action: "minimize" | "maximize" | "close") => ipcRenderer.invoke(IPC_CHANNELS.windowControl, { action }),
   patchSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke(IPC_CHANNELS.settingsPatch, patch),
   setGlobalShields: (patch: Record<string, unknown>) => ipcRenderer.invoke(IPC_CHANNELS.shieldSetGlobal, patch),
   setSiteShields: (rule: SiteShieldRule) => ipcRenderer.invoke(IPC_CHANNELS.shieldSetSite, rule),

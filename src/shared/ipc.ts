@@ -1,10 +1,12 @@
 export const IPC_CHANNELS = {
   browserSnapshot: "browser:snapshot",
   tabAction: "tab:action",
+  tabReorder: "tab:reorder",
   navigate: "tab:navigate",
   sidebarOpen: "sidebar:open",
   sidebarResize: "sidebar:resize",
   uiSetUtilityDock: "ui:set-utility-dock",
+  windowControl: "window:control",
   settingsGet: "settings:get",
   settingsPatch: "settings:patch",
   shieldSetGlobal: "shields:set-global",

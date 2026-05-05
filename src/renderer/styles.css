@@ -76,7 +76,7 @@ body {
   top: 0;
   z-index: 6;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 92px auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   height: 58px;
@@ -110,8 +110,30 @@ body {
   font-size: 0.76rem;
 }
 
-.sidebar-panel-toolbar input[type="range"] {
-  width: 92px;
+.sidebar-drag-resizer {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  width: 10px;
+  height: 100%;
+  cursor: ew-resize;
+}
+
+.sidebar-drag-resizer::after {
+  content: "";
+  position: absolute;
+  top: 12px;
+  right: 4px;
+  width: 2px;
+  height: calc(100% - 24px);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 68%, transparent);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.sidebar-drag-resizer:hover::after {
+  opacity: 1;
 }
 
 .sidebar-toolbar-actions {
@@ -192,6 +214,31 @@ body {
   color: #fff;
   font-weight: 800;
   letter-spacing: 0.04em;
+}
+
+.space-logo-symbol {
+  position: relative;
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  color: #fff;
+}
+
+.space-logo-symbol svg {
+  position: absolute;
+}
+
+.space-logo-symbol svg:first-child {
+  color: currentColor;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 70%, transparent));
+}
+
+.space-logo-symbol svg:last-child {
+  width: 16px;
+  height: 16px;
+  color: currentColor;
+  transform: translateY(-1px) rotate(42deg);
 }
 
 .brand-title {
@@ -321,6 +368,17 @@ body {
 
 .top-chrome {
   padding: 6px 10px 6px;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.top-chrome button,
+.top-chrome input,
+.tab-cluster,
+.address-shell,
+.toolbar-actions,
+.window-controls {
+  -webkit-app-region: no-drag;
 }
 
 .window-title-row,
@@ -366,6 +424,10 @@ body {
   color: var(--text);
   text-align: left;
   cursor: pointer;
+}
+
+.tab-pill:active {
+  cursor: grabbing;
 }
 
 .tab-actions {
@@ -420,6 +482,36 @@ body {
   height: 32px;
   border-radius: 7px;
   padding: 0;
+}
+
+.window-controls {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.window-controls button {
+  display: grid;
+  width: 34px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.window-controls button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.window-controls .close-window:hover {
+  background: #e81123;
+  color: #fff;
 }
 
 .toolbar {
@@ -616,6 +708,7 @@ body {
   border-radius: 8px;
   background: linear-gradient(135deg, var(--accent), #5e77ff);
   font-weight: 800;
+  color: #fff;
 }
 
 .profile-widget span,

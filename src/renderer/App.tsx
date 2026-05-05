@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft,
@@ -42,6 +42,7 @@ import {
   Plus,
   Puzzle,
   RefreshCcw,
+  Rocket,
   Search,
   Send,
   Shield,
@@ -218,6 +219,10 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(380);
   const [tabSearch, setTabSearch] = useState("");
   const [activeUtilityPanel, setActiveUtilityPanel] = useState<UtilityPanel>("all");
+  const [resizingSidebar, setResizingSidebar] = useState(false);
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const lastDragTarget = useRef<string | null>(null);
+  const sidebarPinnedRef = useRef(false);
 
   useEffect(() => {
     window.space.getSnapshot().then((data) => {
@@ -231,6 +236,28 @@ export function App() {
       if (active) setAddress(active.url);
     });
   }, []);
+
+  useEffect(() => {
+    sidebarPinnedRef.current = snapshot.sidebarPinned;
+  }, [snapshot.sidebarPinned]);
+
+  useEffect(() => {
+    if (!resizingSidebar) return;
+    function handleMove(event: MouseEvent) {
+      const nextWidth = Math.max(320, Math.min(560, event.clientX - 64));
+      setSidebarWidth(nextWidth);
+      void window.space.resizeSidebar(nextWidth, sidebarPinnedRef.current);
+    }
+    function stopResize() {
+      setResizingSidebar(false);
+    }
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", stopResize, { once: true });
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", stopResize);
+    };
+  }, [resizingSidebar]);
 
   const activeTab = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId) ?? null;
   const filteredTabs = useMemo(() => {
@@ -275,7 +302,9 @@ export function App() {
       <div className="backdrop-grid" />
       <aside className="space-sidebar">
         <div className="brand-lockup">
-          <div className="brand-mark">S_</div>
+          <div className="brand-mark">
+            <SpaceLogoMark />
+          </div>
           <div>
             <div className="brand-title">Space_</div>
             <div className="brand-subtitle">GX + Shields</div>
@@ -323,18 +352,6 @@ export function App() {
             <strong>{activeSidebarApp?.name ?? "Panel"}</strong>
             <span>{snapshot.sidebarPinned ? "Docked" : "Overlay"}</span>
           </div>
-          <input
-            type="range"
-            min={320}
-            max={520}
-            value={sidebarWidth}
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              setSidebarWidth(value);
-              void window.space.resizeSidebar(value, snapshot.sidebarPinned);
-            }}
-            title="Resize panel"
-          />
           <div className="sidebar-toolbar-actions">
             <button onClick={() => void window.space.tabAction("toggle-sidebar-pin")} title={snapshot.sidebarPinned ? "Unpin panel" : "Pin panel"}>
               <Pin size={16} />
@@ -343,6 +360,7 @@ export function App() {
               <X size={16} />
             </button>
           </div>
+          <div className="sidebar-drag-resizer" onMouseDown={() => setResizingSidebar(true)} title="Drag to resize sidebar" />
         </div>
       )}
 
@@ -358,8 +376,28 @@ export function App() {
               {snapshot.tabs.map((tab) => (
                 <button
                   key={tab.id}
+                  draggable
                   className={`tab-pill ${tab.id === snapshot.activeTabId ? "active" : ""} ${tab.isPinned ? "pinned" : ""}`}
                   onClick={() => void window.space.tabAction("activate", { tabId: tab.id })}
+                  onDragStart={(event) => {
+                    setDraggedTabId(tab.id);
+                    lastDragTarget.current = tab.id;
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", tab.id);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    const sourceId = draggedTabId ?? event.dataTransfer.getData("text/plain");
+                    if (!sourceId || sourceId === tab.id || lastDragTarget.current === tab.id) return;
+                    lastDragTarget.current = tab.id;
+                    void window.space.reorderTab(sourceId, tab.id);
+                  }}
+                  onDragEnd={(event) => {
+                    const leftWindow = event.clientX < 0 || event.clientY < 0 || event.clientX > window.innerWidth || event.clientY > window.innerHeight;
+                    if (leftWindow) void window.space.tabAction("detach", { tabId: tab.id });
+                    setDraggedTabId(null);
+                    lastDragTarget.current = null;
+                  }}
                 >
                   <span className="tab-title">{tab.title}</span>
                   <span className="tab-actions">
@@ -382,6 +420,11 @@ export function App() {
               <button className="new-tab-button" onClick={() => void window.space.tabAction("new")}>
               <Plus size={19} />
             </button>
+            <div className="window-controls">
+              <button onClick={() => void window.space.windowControl("minimize")} title="Minimize">-</button>
+              <button onClick={() => void window.space.windowControl("maximize")} title="Maximize">□</button>
+              <button className="close-window" onClick={() => void window.space.windowControl("close")} title="Close">×</button>
+            </div>
           </div>
 
           <div className="toolbar">
@@ -450,7 +493,9 @@ export function App() {
 
               <div className="home-widgets">
                 <button className="profile-widget">
-                  <div className="widget-avatar">S_</div>
+                  <div className="widget-avatar">
+                    <SpaceLogoMark />
+                  </div>
                   <strong>Aryboss1234</strong>
                   <span>GX ME</span>
                 </button>
@@ -822,6 +867,15 @@ function panelTitle(panel: UtilityPanel) {
     settings: "Settings"
   };
   return titles[panel];
+}
+
+function SpaceLogoMark() {
+  return (
+    <span className="space-logo-symbol" aria-hidden="true">
+      <Shield size={29} strokeWidth={2.2} />
+      <Rocket size={17} strokeWidth={2.4} />
+    </span>
+  );
 }
 
 function nextTheme(theme: ThemeId): ThemeId {

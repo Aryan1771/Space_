@@ -28,7 +28,7 @@ type BrowserTab = {
 const blockedHosts = ["doubleclick.net", "googleadservices.com", "googlesyndication.com"];
 const adBlockLists = "https://easylist.to/easylist/easylist.txt";
 const railWidth = 64;
-const chromeHeight = 104;
+const chromeHeight = 86;
 const sidebarHeaderHeight = 58;
 const utilityDockWidth = 358;
 const chromeLikeUserAgent =
@@ -78,6 +78,7 @@ export class SpaceBrowserApp {
       minWidth: 1200,
       minHeight: 760,
       title: "Space_",
+      frame: false,
       backgroundColor: "#09070d",
       autoHideMenuBar: true,
       icon: path.join(app.getAppPath(), "assets", "app.ico"),
@@ -126,6 +127,9 @@ export class SpaceBrowserApp {
   private registerIpc() {
     ipcMain.handle(IPC_CHANNELS.browserSnapshot, () => this.snapshot());
     ipcMain.handle(IPC_CHANNELS.tabAction, async (_event, { action, payload }) => this.handleTabAction(action, payload ?? {}));
+    ipcMain.handle(IPC_CHANNELS.tabReorder, async (_event, { tabId, targetTabId }) => {
+      if (typeof tabId === "string" && typeof targetTabId === "string") this.reorderTab(tabId, targetTabId);
+    });
     ipcMain.handle(IPC_CHANNELS.navigate, async (_event, { tabId, value }) => this.navigate(tabId, value));
     ipcMain.handle(IPC_CHANNELS.sidebarOpen, async (_event, { appId }) => this.openSidebarApp(appId));
     ipcMain.handle(IPC_CHANNELS.sidebarResize, async (_event, { width, pinned }) => {
@@ -139,6 +143,7 @@ export class SpaceBrowserApp {
       this.layoutViews();
       this.publishSnapshot();
     });
+    ipcMain.handle(IPC_CHANNELS.windowControl, async (_event, { action }) => this.controlWindow(action));
     ipcMain.handle(IPC_CHANNELS.settingsPatch, async (_event, patch) => {
       const settings = { ...this.getSettings(), ...patch } as AppSettings;
       appStore.set("settings", settings);
@@ -387,6 +392,7 @@ export class SpaceBrowserApp {
   private async handleTabAction(action: string, payload: Record<string, unknown>) {
     if (action === "new") return this.createTab({ url: "space://start", private: Boolean(payload.private) });
     if (action === "close" && typeof payload.tabId === "string") return this.closeTab(payload.tabId);
+    if (action === "detach" && typeof payload.tabId === "string") return this.detachTab(payload.tabId);
     if (action === "activate" && typeof payload.tabId === "string") return this.activateTab(payload.tabId);
     if (action === "restore-closed") return this.restoreClosedTab();
     if (action === "pin" && typeof payload.tabId === "string") return this.togglePin(payload.tabId);
@@ -495,6 +501,71 @@ export class SpaceBrowserApp {
     if (!tab) return;
     tab.record.isSplitParticipant = true;
     await this.createTab({ url: tab.record.url, private: tab.record.private, split: true });
+  }
+
+  private reorderTab(tabId: string, targetTabId: string) {
+    if (tabId === targetTabId || !this.tabs.has(tabId) || !this.tabs.has(targetTabId)) return;
+    const moving = this.tabs.get(tabId)!;
+    const reordered = new Map<string, BrowserTab>();
+    for (const [id, tab] of this.tabs) {
+      if (id === tabId) continue;
+      if (id === targetTabId) reordered.set(tabId, moving);
+      reordered.set(id, tab);
+    }
+    this.tabs = reordered;
+    this.publishSnapshot();
+  }
+
+  private detachTab(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    const url = tab.record.url;
+    const title = tab.record.title;
+    this.closeTab(tabId);
+    this.openDetachedWindow(url, title);
+  }
+
+  private openDetachedWindow(url: string, title: string) {
+    const detachedWindow = new BrowserWindow({
+      width: 1180,
+      height: 780,
+      minWidth: 900,
+      minHeight: 620,
+      frame: false,
+      title: `Space_ - ${title}`,
+      backgroundColor: "#08070d",
+      icon: path.join(app.getAppPath(), "assets", "app.ico")
+    });
+    const detachedView = new BrowserView({
+      webPreferences: {
+        partition: "persist:space-default",
+        sandbox: true
+      }
+    });
+    detachedView.webContents.setUserAgent(chromeLikeUserAgent);
+    detachedWindow.addBrowserView(detachedView);
+    const layout = () => {
+      const [width, height] = detachedWindow.getContentSize();
+      detachedView.setBounds({ x: 0, y: 0, width, height });
+      detachedView.setAutoResize({ width: true, height: true });
+    };
+    detachedWindow.on("resize", layout);
+    layout();
+    detachedView.webContents.setWindowOpenHandler((details) => {
+      this.openDetachedWindow(details.url, "New Window");
+      return { action: "deny" };
+    });
+    void detachedView.webContents.loadURL(this.isInternalStartUrl(url) ? "https://www.google.com" : this.normalizeUrl(url));
+  }
+
+  private controlWindow(action: unknown) {
+    if (!this.mainWindow) return;
+    if (action === "minimize") this.mainWindow.minimize();
+    if (action === "maximize") {
+      if (this.mainWindow.isMaximized()) this.mainWindow.unmaximize();
+      else this.mainWindow.maximize();
+    }
+    if (action === "close") this.mainWindow.close();
   }
 
   private openSidebarApp(appId: string) {
@@ -921,8 +992,7 @@ export class SpaceBrowserApp {
   private snapshot(): BrowserStateSnapshot {
     return {
       tabs: [...this.tabs.values()]
-        .map((entry) => ({ ...entry.record }))
-        .sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || b.lastActiveAt - a.lastActiveAt),
+        .map((entry) => ({ ...entry.record })),
       activeTabId: this.activeTabId,
       bookmarks: appStore.get("bookmarks") ?? [],
       history: appStore.get("history") ?? [],
