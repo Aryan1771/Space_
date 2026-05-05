@@ -457,6 +457,11 @@ export class SpaceBrowserApp {
     const value = url.trim().toLowerCase();
     if (value.startsWith("space://settings")) return "Settings";
     if (value.startsWith("space://extensions")) return "Extensions";
+    if (value.startsWith("space://mods")) return "Mods";
+    if (value.startsWith("space://history")) return "History";
+    if (value.startsWith("space://bookmarks")) return "Bookmarks";
+    if (value.startsWith("space://downloads")) return "Downloads";
+    if (value.startsWith("space://notes")) return "Notes";
     return isPrivate ? "Private Start" : "Start Page";
   }
 

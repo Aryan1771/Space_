@@ -7,7 +7,8 @@ Space_ is a Chromium-based desktop browser built with Electron, React, Tailwind,
 - Chromium-backed browsing through Electron.
 - Opera GX-style browser chrome with a neon sidebar, tab strip, address bar, start page, editable Speed Dial, widgets, and GX-style feature panels.
 - Brave-style Shields controls for ads, trackers, URL tracking cleanup, cookies, HTTPS upgrade, fingerprinting hardening, scripts, and consent blocking.
-- Sidebar apps for settings, history, bookmarks, downloads, notes, music, social apps, and AI tools.
+- Local Space_ pages for settings, mods, history, bookmarks, downloads, and extensions.
+- Sidebar apps for local browser pages, notes, music, social apps, and AI tools.
 - Theme presets: GX Red, Neon Green, Electric Blue, Cyber Yellow, Dark Mode, and Light Mode.
 - GX Mods scaffold with local import/export for JSON mod manifests.
 - GX Control scaffold for background tab behavior, suspension policy, network presets, and animation levels.
@@ -22,6 +23,7 @@ Space_ does not fake server-backed or OS-kernel features. Tor, VPN, cross-device
 | Chromium browsing | Working | Real Electron Chromium BrowserViews render standard websites. |
 | Tabs | Partial | New, close, restore, pin, drag reorder, detach, split view, and island metadata exist; collapsible island UI is still future work. |
 | Speed Dial | Working | Add, edit, delete, recolor, favicon tiles, hover actions. |
+| Local browser pages | Working | `space://settings`, `space://mods`, `space://history`, `space://bookmarks`, `space://downloads`, and `space://extensions`. |
 | Sidebar apps | Working | System, social, music, and AI apps open in resizable/pinnable panels. |
 | Themes/RGB | Working | Six presets with shared accent/glow tokens. |
 | GX Mods | Partial | Local JSON import/export works; online marketplace is not connected. |

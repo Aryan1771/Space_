@@ -14,9 +14,11 @@ export const defaultSettings: AppSettings = {
   theme: "gx-red",
   sidebarApps: [
     "settings",
+    "mods",
     "history",
     "bookmarks",
     "downloads",
+    "extensions",
     "notes",
     "music",
     "chatgpt",
@@ -57,9 +59,11 @@ export const defaultSettings: AppSettings = {
 
 export const sidebarApps: SidebarApp[] = [
   { id: "settings", name: "Settings", icon: "sliders-horizontal", url: "space://settings", type: "system", resizable: true, defaultPinned: true },
+  { id: "mods", name: "Mods", icon: "wand-sparkles", url: "space://mods", type: "system", resizable: true, defaultPinned: false },
   { id: "history", name: "History", icon: "history", url: "space://history", type: "system", resizable: true, defaultPinned: false },
   { id: "bookmarks", name: "Bookmarks", icon: "star", url: "space://bookmarks", type: "system", resizable: true, defaultPinned: false },
   { id: "downloads", name: "Downloads", icon: "download", url: "space://downloads", type: "system", resizable: true, defaultPinned: false },
+  { id: "extensions", name: "Extensions", icon: "puzzle", url: "space://extensions", type: "system", resizable: true, defaultPinned: false },
   { id: "notes", name: "Notes", icon: "notebook-tabs", url: "space://notes", type: "system", resizable: true, defaultPinned: false },
   { id: "music", name: "Music", icon: "music-4", url: "https://music.youtube.com", type: "system", resizable: true, defaultPinned: false },
   { id: "discord", name: "Discord", icon: "message-circle-more", url: "https://discord.com/app", type: "social", resizable: true, defaultPinned: true },

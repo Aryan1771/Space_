@@ -193,6 +193,16 @@ type UtilityPanel = "all" | "shields" | "tabs" | "history" | "performance" | "ai
 type SpeedDialEntry = { id: string; title: string; url: string; color?: string };
 type SpeedDialDraft = SpeedDialEntry & { isNew?: boolean; sourceDefaultId?: string };
 type FeatureStatus = "working" | "partial" | "planned" | "removed";
+type LocalPageId = "start" | "settings" | "mods" | "history" | "downloads" | "bookmarks" | "extensions" | "notes";
+
+const localPageTabs: Array<{ id: Exclude<LocalPageId, "start" | "notes">; label: string; url: string }> = [
+  { id: "mods", label: "Mods", url: "space://mods" },
+  { id: "history", label: "History", url: "space://history" },
+  { id: "downloads", label: "Downloads", url: "space://downloads" },
+  { id: "settings", label: "Settings", url: "space://settings" },
+  { id: "bookmarks", label: "Bookmarks", url: "space://bookmarks" },
+  { id: "extensions", label: "Extensions", url: "space://extensions" }
+];
 
 const featureAudit: Array<{ group: string; items: Array<{ name: string; status: FeatureStatus; note: string }> }> = [
   {
@@ -323,8 +333,9 @@ export function App() {
   }, [resizingSidebar]);
 
   const activeTab = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId) ?? null;
-  const activeTabIsStart = !activeTab || activeTab.url.startsWith("space://start");
-  const activeTabIsSettings = Boolean(activeTab?.url.startsWith("space://settings"));
+  const activeLocalPage = getLocalPageId(activeTab?.url);
+  const activeTabIsStart = !activeTab || activeLocalPage === "start";
+  const activeTabIsLocal = Boolean(activeLocalPage);
   const speedDialEntries = useMemo(() => {
     const hidden = new Set(snapshot.settings.hiddenSpeedDialIds ?? []);
     const custom = snapshot.settings.speedDial.filter((entry) => !defaultSpeedDial.some((dial) => dial.id === entry.id || dial.url === entry.url));
@@ -409,8 +420,8 @@ export function App() {
   const showUtilityPanel = (panel: UtilityPanel) => activeUtilityPanel === "all" || activeUtilityPanel === panel;
 
   async function openSidebarTarget(app: (typeof sidebarApps)[number]) {
-    if (app.id === "settings" && activeTab) {
-      await window.space.navigate(activeTab.id, "space://settings");
+    if (app.url.startsWith("space://") && activeTab) {
+      await window.space.navigate(activeTab.id, app.url);
       await window.space.tabAction("close-sidebar");
       return;
     }
@@ -628,7 +639,7 @@ export function App() {
           </div>
         </header>
 
-        <section className={`workspace-body ${activeTabIsStart || activeTabIsSettings ? "local-active" : "web-active"} ${snapshot.utilityDockOpen ? "with-utility" : "utility-collapsed"}`}>
+        <section className={`workspace-body ${activeTabIsLocal ? "local-active" : "web-active"} ${snapshot.utilityDockOpen ? "with-utility" : "utility-collapsed"}`}>
           {activeTabIsStart && <div className="start-surface">
             <section className="gx-home">
               <div className="gx-search-card">
@@ -706,131 +717,11 @@ export function App() {
                 </button>
               </div>
             </section>
-
-            <div className="settings-preview-strip">
-              {featureGroups.slice(0, 4).map(({ title, Icon }) => (
-                <button key={title} onClick={() => void toggleUtilityPanel(title.includes("Shields") ? "shields" : "settings")}>
-                  <Icon size={18} />
-                  {title}
-                </button>
-              ))}
-            </div>
-
-            <div className="content-grid start-secondary">
-              <section className="glass-panel">
-                <div className="panel-header">
-                  <h2>Speed Dial</h2>
-                  <span>{snapshot.settings.speedDial.length} shortcuts</span>
-                </div>
-                <div className="speed-dial-grid">
-                  {snapshot.settings.speedDial.map((entry) => (
-                    <button key={entry.id} className="dial-card" onClick={() => activeTab && void window.space.navigate(activeTab.id, entry.url)}>
-                      <div className="dial-badge">{entry.title.slice(0, 1)}</div>
-                      <strong>{entry.title}</strong>
-                      <span>{entry.url}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="glass-panel">
-                <div className="panel-header">
-                  <h2>GX Corner</h2>
-                  <span>Gaming feed</span>
-                </div>
-                <div className="feed-list">
-                  <article className="feed-card">
-                    <strong>Daily drop</strong>
-                    <p>Launch titles, bundle deals, and hardware promos belong here in the live feed integration.</p>
-                  </article>
-                  <article className="feed-card">
-                    <strong>Live wallpaper</strong>
-                    <p>Video backgrounds, shader overlays, and mood presets are scaffolded into the mod system.</p>
-                  </article>
-                </div>
-              </section>
-
-              <section className="glass-panel">
-                <div className="panel-header">
-                  <h2>Widgets</h2>
-                  <span>Weather, stats, news</span>
-                </div>
-                <div className="widget-stack">
-                  <div className="widget-card">
-                    <span>System load</span>
-                    <strong>{snapshot.settings.performanceProfile.backgroundTabPolicy.toUpperCase()}</strong>
-                  </div>
-                  <div className="widget-card">
-                    <span>Shields</span>
-                    <strong>{snapshot.settings.shieldDefaults.ads ? "ARMED" : "MANUAL"}</strong>
-                  </div>
-                  <div className="widget-card">
-                    <span>Mods</span>
-                    <strong>LOCAL + BUILT-IN</strong>
-                  </div>
-                </div>
-              </section>
-            </div>
-
-            <div className="customization-grid start-secondary">
-              <section className="glass-panel">
-                <div className="panel-header">
-                  <h2>Themes</h2>
-                  <span>Built-in presets</span>
-                </div>
-                <div className="theme-grid">
-                  {themeOptions.map((theme) => (
-                    <button
-                      className={`theme-card ${snapshot.settings.theme === theme.id ? "active" : ""} theme-swatch-${theme.id}`}
-                      key={theme.id}
-                      onClick={() => void patchSettings({ theme: theme.id })}
-                    >
-                      <span>{theme.name}</span>
-                      <strong>{theme.hint}</strong>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="glass-panel">
-                <div className="panel-header">
-                  <h2>Mod Everything</h2>
-                  <span>Local GX mod system</span>
-                </div>
-                <div className="mod-grid">
-                  {[
-                    ["Colors", Brush],
-                    ["Sounds", Volume2],
-                    ["Cursors", MousePointer2],
-                    ["Shaders", Zap],
-                    ["Wallpapers", Wallpaper],
-                    ["Marketplace", Store]
-                  ].map(([label, Icon]) => {
-                    const ModIcon = Icon as LucideIcon;
-                    return (
-                      <button className="mod-tile" key={String(label)}>
-                        <ModIcon size={20} />
-                        <span>{String(label)}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="inline-actions">
-                  <button onClick={() => void window.space.importMods()}>
-                    <PackageOpen size={17} />
-                    Import
-                  </button>
-                  <button onClick={() => void window.space.exportMods()}>
-                    <Download size={17} />
-                    Export
-                  </button>
-                </div>
-              </section>
-            </div>
           </div>}
 
-          {activeTabIsSettings && (
-            <SettingsPage
+          {activeLocalPage && activeLocalPage !== "start" && (
+            <SpaceLocalPage
+              pageId={activeLocalPage}
               snapshot={snapshot}
               activeTab={activeTab}
               patchSettings={patchSettings}
@@ -1147,6 +1038,13 @@ function hostLabel(url: string) {
   }
 }
 
+function getLocalPageId(url?: string): LocalPageId | null {
+  if (!url?.startsWith("space://")) return null;
+  const raw = url.replace("space://", "").split(/[?#]/)[0] || "start";
+  if (["start", "settings", "mods", "history", "downloads", "bookmarks", "extensions", "notes"].includes(raw)) return raw as LocalPageId;
+  return "start";
+}
+
 type SidebarPanelProps = {
   appId: string;
   snapshot: BrowserStateSnapshot;
@@ -1156,40 +1054,167 @@ type SidebarPanelProps = {
   navigateInActiveTab: (url: string) => Promise<unknown> | false | null;
 };
 
-function SettingsPage({
+function SpaceLocalPage({
+  pageId,
   snapshot,
   activeTab,
   patchSettings,
   patchPerformance
-}: Pick<SidebarPanelProps, "snapshot" | "activeTab" | "patchSettings" | "patchPerformance">) {
+}: Pick<SidebarPanelProps, "snapshot" | "activeTab" | "patchSettings" | "patchPerformance"> & { pageId: LocalPageId }) {
+  const content = (() => {
+    if (pageId === "settings") return renderSidebarPanel({ appId: "settings", snapshot, activeTab, patchSettings, patchPerformance, navigateInActiveTab: (url) => activeTab && window.space.navigate(activeTab.id, url) });
+    if (pageId === "history") return renderSidebarPanel({ appId: "history", snapshot, activeTab, patchSettings, patchPerformance, navigateInActiveTab: (url) => activeTab && window.space.navigate(activeTab.id, url) });
+    if (pageId === "bookmarks") return renderSidebarPanel({ appId: "bookmarks", snapshot, activeTab, patchSettings, patchPerformance, navigateInActiveTab: (url) => activeTab && window.space.navigate(activeTab.id, url) });
+    if (pageId === "downloads") return renderSidebarPanel({ appId: "downloads", snapshot, activeTab, patchSettings, patchPerformance, navigateInActiveTab: (url) => activeTab && window.space.navigate(activeTab.id, url) });
+    if (pageId === "extensions") return <ExtensionsPage snapshot={snapshot} activeTab={activeTab} patchSettings={patchSettings} />;
+    if (pageId === "mods") return <ModsPage snapshot={snapshot} patchSettings={patchSettings} />;
+    return renderSidebarPanel({ appId: "notes", snapshot, activeTab, patchSettings, patchPerformance, navigateInActiveTab: (url) => activeTab && window.space.navigate(activeTab.id, url) });
+  })();
+  const title = localPageTabs.find((entry) => entry.id === pageId)?.label ?? "Notes";
   return (
-    <div className="local-page settings-page">
+    <div className={`local-page local-page-${pageId}`}>
       <div className="local-page-hero">
         <div>
-          <span className="eyebrow">SPACE_ LOCAL PAGE</span>
-          <h1>Settings</h1>
-          <p>Appearance, Shields, sidebar, performance, extensions, downloads, startup, languages, site permissions, and advanced browser controls.</p>
+          <span className="eyebrow">SPACE_</span>
+          <h1>{title}</h1>
+          <p>{localPageDescription(pageId)}</p>
         </div>
         <div className="settings-search-shell">
           <Search size={18} />
-          <input placeholder="Search settings" />
+          <input placeholder={`Search ${title.toLowerCase()}`} />
         </div>
       </div>
-      <div className="settings-category-strip">
-        {settingsSections.map((section) => (
-          <a key={section} href={`#${section.toLowerCase().replaceAll(" ", "-")}`}>
-            {section}
-          </a>
+      <div className="local-page-tabs">
+        {localPageTabs.map((entry) => (
+          <button
+            key={entry.id}
+            className={entry.id === pageId ? "active" : ""}
+            onClick={() => activeTab && void window.space.navigate(activeTab.id, entry.url)}
+          >
+            {entry.label}
+          </button>
         ))}
       </div>
-      {renderSidebarPanel({
-        appId: "settings",
-        snapshot,
-        activeTab,
-        patchSettings,
-        patchPerformance,
-        navigateInActiveTab: (url: string) => activeTab && window.space.navigate(activeTab.id, url)
-      })}
+      {pageId === "settings" && (
+        <div className="settings-category-strip">
+          {settingsSections.map((section) => (
+            <a key={section} href={`#${section.toLowerCase().replaceAll(" ", "-")}`}>
+              {section}
+            </a>
+          ))}
+        </div>
+      )}
+      {content}
+    </div>
+  );
+}
+
+function localPageDescription(pageId: LocalPageId) {
+  const copy: Record<LocalPageId, string> = {
+    start: "Your customizable speed dial and launch surface.",
+    settings: "Appearance, privacy, Shields, sidebar, performance, startup, languages, site permissions, and advanced controls.",
+    mods: "Mod everything in Space_: themes, colors, sounds, wallpapers, cursors, shaders, and local mod import/export.",
+    history: "Search, reopen, and delete individual browsing history entries.",
+    downloads: "Review downloaded files and clean download-related browser data.",
+    bookmarks: "Manage saved pages and quickly reopen bookmarked websites.",
+    extensions: "Open the Chrome Web Store and load developer extensions for this session.",
+    notes: "Keep quick local notes inside the browser."
+  };
+  return copy[pageId];
+}
+
+function ExtensionsPage({ snapshot, activeTab, patchSettings }: Pick<SidebarPanelProps, "snapshot" | "activeTab" | "patchSettings">) {
+  return (
+    <div className="native-panel-content management-page-body">
+      <section className="native-section">
+        <div className="panel-header">
+          <h3>Extensions</h3>
+          <span>Developer mode</span>
+        </div>
+        <div className="extension-toolbar">
+          <button onClick={() => activeTab && void window.space.openChromeWebStore(activeTab.id)}>
+            <Store size={17} />
+            Chrome Web Store
+          </button>
+          <button onClick={() => void window.space.loadUnpackedExtension()}>
+            <PackageOpen size={17} />
+            Load unpacked
+          </button>
+          <button onClick={() => void patchSettings({ enableExperimentalExtensions: !snapshot.settings.enableExperimentalExtensions })}>
+            <Puzzle size={17} />
+            Developer mode {snapshot.settings.enableExperimentalExtensions ? "On" : "Off"}
+          </button>
+        </div>
+      </section>
+      <section className="extension-card">
+        <div className="dial-logo-wrap"><Puzzle size={22} /></div>
+        <div>
+          <strong>Developer Extensions</strong>
+          <span>Loaded unpacked extensions are registered with Electron for the current Space_ session.</span>
+        </div>
+        <button onClick={() => void window.space.loadUnpackedExtension()}>Load</button>
+      </section>
+      <section className="extension-card">
+        <div className="dial-logo-wrap"><Store size={22} /></div>
+        <div>
+          <strong>Chrome Web Store</strong>
+          <span>Browse extensions and themes in a normal Chromium tab.</span>
+        </div>
+        <button onClick={() => activeTab && void window.space.openChromeWebStore(activeTab.id)}>Open</button>
+      </section>
+    </div>
+  );
+}
+
+function ModsPage({ snapshot, patchSettings }: Pick<SidebarPanelProps, "snapshot" | "patchSettings">) {
+  return (
+    <div className="mods-page-body">
+      <section className="mod-command-center">
+        <div className="mod-orb">
+          <SpaceLogoMark />
+          <strong>53%</strong>
+        </div>
+        <div className="mod-spokes">
+          {[
+            ["Interface", Brush, "66%"],
+            ["Sounds", Volume2, snapshot.settings.soundsEnabled ? "On" : "Off"],
+            ["Effects", Zap, "0%"],
+            ["Wallpapers", Wallpaper, "GX"],
+            ["Cursors", MousePointer2, "Default"]
+          ].map(([label, Icon, value]) => {
+            const ModIcon = Icon as LucideIcon;
+            return (
+              <button className="mod-spoke" key={String(label)}>
+                <ModIcon size={20} />
+                <strong>{String(value)}</strong>
+                <span>{String(label)}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      <aside className="mod-side-panel">
+        <h3>Mod Everything</h3>
+        <button onClick={() => void patchSettings({ theme: nextTheme(snapshot.settings.theme) })}>Cycle theme</button>
+        <button onClick={() => void patchSettings({ soundsEnabled: !snapshot.settings.soundsEnabled })}>Toggle sounds</button>
+        <button onClick={() => void window.space.importMods()}>Import mod JSON</button>
+        <button onClick={() => void window.space.exportMods()}>Export mods</button>
+      </aside>
+      <section className="native-section mod-theme-section">
+        <h3>Themes</h3>
+        <div className="theme-grid native-theme-grid">
+          {themeOptions.map((theme) => (
+            <button
+              className={`theme-card ${snapshot.settings.theme === theme.id ? "active" : ""} theme-swatch-${theme.id}`}
+              key={theme.id}
+              onClick={() => void patchSettings({ theme: theme.id })}
+            >
+              <span>{theme.name}</span>
+              <strong>{theme.hint}</strong>
+            </button>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
@@ -1543,8 +1568,10 @@ function iconComponent(icon: string): LucideIcon {
   const icons: Record<string, LucideIcon> = {
     "sliders-horizontal": SlidersHorizontal,
     history: History,
+    "wand-sparkles": WandSparkles,
     star: Bookmark,
     download: Download,
+    puzzle: Puzzle,
     "notebook-tabs": NotebookTabs,
     "music-4": Music4,
     "message-circle-more": MessageCircleMore,
