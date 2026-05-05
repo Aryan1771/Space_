@@ -70,6 +70,7 @@ export class SpaceBrowserApp {
     await app.whenReady();
     await this.loadBlocker();
     this.configureSession(session.defaultSession);
+    this.configureSession(session.fromPartition("persist:space-sidebar"), { sidebar: true });
     this.registerProtocols();
     this.createWindow();
     this.registerIpc();
@@ -413,7 +414,7 @@ export class SpaceBrowserApp {
     });
   }
 
-  private configureSession(tabSession: Electron.Session) {
+  private configureSession(tabSession: Electron.Session, options: { sidebar?: boolean } = {}) {
     const settings = this.getSettings();
     tabSession.webRequest.onBeforeRequest((details, callback) => {
       const merged = this.resolveShieldState(details.url);
@@ -444,9 +445,16 @@ export class SpaceBrowserApp {
     });
 
     tabSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      if (options.sidebar && permission === "media") {
+        callback(false);
+        return;
+      }
       callback(permission !== "notifications");
     });
-    tabSession.setPermissionCheckHandler((_wc, permission) => permission !== "notifications");
+    tabSession.setPermissionCheckHandler((_wc, permission) => {
+      if (options.sidebar && permission === "media") return false;
+      return permission !== "notifications";
+    });
 
     if (settings.performanceProfile.throttleNetworkPreset !== "off") {
       // Scaffolding for devtools-network throttling; policy is reflected in UI/state.
@@ -771,6 +779,13 @@ export class SpaceBrowserApp {
         }
       });
       this.sidebarView.webContents.setUserAgent(chromeLikeUserAgent);
+      this.sidebarView.webContents.on("dom-ready", () => {
+        void this.disableSidebarPasskeys();
+      });
+      this.sidebarView.webContents.setWindowOpenHandler((details) => {
+        void this.createTab({ url: details.url, private: false });
+        return { action: "deny" };
+      });
       this.mainWindow.addBrowserView(this.sidebarView);
     }
 
@@ -803,10 +818,50 @@ export class SpaceBrowserApp {
     if (!this.sidebarView) return;
     try {
       await this.sidebarView.webContents.loadURL(url);
+      await this.disableSidebarPasskeys();
     } catch (error) {
       if (this.isAbortedNavigation(error)) return;
       throw error;
     }
+  }
+
+  private async disableSidebarPasskeys() {
+    if (!this.sidebarView || this.sidebarView.webContents.isDestroyed()) return;
+    await this.sidebarView.webContents
+      .executeJavaScript(
+        `
+        (() => {
+          if (window.__spaceSidebarPasskeyGuard) return true;
+          window.__spaceSidebarPasskeyGuard = true;
+          const message = "Passkeys are disabled in Space_ sidebar panels. Open this service in a full tab if you want to use Windows passkey sign-in.";
+          try {
+            if (navigator.credentials) {
+              const proto = Object.getPrototypeOf(navigator.credentials);
+              const nativeGet = navigator.credentials.get ? navigator.credentials.get.bind(navigator.credentials) : null;
+              const nativeCreate = navigator.credentials.create ? navigator.credentials.create.bind(navigator.credentials) : null;
+              Object.defineProperty(proto, "get", {
+                configurable: true,
+                value(options) {
+                  if (options && options.publicKey) return Promise.reject(new DOMException(message, "NotAllowedError"));
+                  return nativeGet ? nativeGet(options) : Promise.resolve(null);
+                }
+              });
+              Object.defineProperty(proto, "create", {
+                configurable: true,
+                value(options) {
+                  if (options && options.publicKey) return Promise.reject(new DOMException(message, "NotAllowedError"));
+                  return nativeCreate ? nativeCreate(options) : Promise.resolve(null);
+                }
+              });
+            }
+            Object.defineProperty(window, "PublicKeyCredential", { configurable: true, value: undefined });
+          } catch {}
+          return true;
+        })();
+      `,
+        true
+      )
+      .catch(() => {});
   }
 
   private async requestPictureInPicture(tabId?: string) {

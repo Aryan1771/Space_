@@ -14,7 +14,7 @@
     "build:main": "tsc -p tsconfig.node.json",
     "build:renderer": "vite build",
     "pack": "npm run build && electron-builder --dir",
-    "installer": "npm run pack && powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-installer.ps1",
+    "installer": "npm run build && electron-builder --win nsis --x64",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.renderer.json",
     "start": "electron ."
   },
