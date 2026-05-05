@@ -218,13 +218,20 @@ export class SpaceBrowserApp {
       ...stored,
       shieldDefaults: { ...defaultSettings.shieldDefaults, ...(stored as Partial<AppSettings>).shieldDefaults },
       performanceProfile: { ...defaultSettings.performanceProfile, ...(stored as Partial<AppSettings>).performanceProfile },
-      sidebarApps: (stored as Partial<AppSettings>).sidebarApps ?? defaultSettings.sidebarApps,
+      sidebarApps: this.mergeSidebarApps((stored as Partial<AppSettings>).sidebarApps),
       startPageWidgets: (stored as Partial<AppSettings>).startPageWidgets ?? defaultSettings.startPageWidgets,
       siteShieldRules: (stored as Partial<AppSettings>).siteShieldRules ?? defaultSettings.siteShieldRules,
       notes: (stored as Partial<AppSettings>).notes ?? defaultSettings.notes,
       hiddenSpeedDialIds: (stored as Partial<AppSettings>).hiddenSpeedDialIds ?? defaultSettings.hiddenSpeedDialIds,
       speedDial: (stored as Partial<AppSettings>).speedDial ?? defaultSettings.speedDial
     } as AppSettings;
+  }
+
+  private mergeSidebarApps(storedApps?: string[]) {
+    if (!storedApps) return defaultSettings.sidebarApps;
+    const known = new Set(sidebarApps.map((entry) => entry.id));
+    const cleaned = storedApps.filter((id) => known.has(id));
+    return cleaned.includes("spotify") ? cleaned : [...cleaned, "spotify"];
   }
 
   private createPartition(isPrivate: boolean) {
@@ -291,6 +298,7 @@ export class SpaceBrowserApp {
   private bindViewEvents(tab: BrowserTab, tabSession: Electron.Session) {
     const wc = tab.view.webContents;
     this.bindBrowserShortcuts(wc);
+    wc.on("focus", () => this.collapseTransientOverlays());
     wc.setWindowOpenHandler((details) => {
       const url = details.url;
       void this.createTab({ url, private: tab.record.private });
@@ -344,6 +352,23 @@ export class SpaceBrowserApp {
         this.publishSnapshot();
       });
     });
+  }
+
+  private collapseTransientOverlays() {
+    let changed = false;
+    if (this.sidebarOpen && !this.sidebarPinned) {
+      this.sidebarOpen = false;
+      this.activeSidebarAppId = null;
+      changed = true;
+    }
+    if (this.utilityDockOpen) {
+      this.utilityDockOpen = false;
+      changed = true;
+    }
+    if (changed) {
+      this.layoutViews();
+      this.publishSnapshot();
+    }
   }
 
   private async installPageEnhancements(tab: BrowserTab) {
@@ -1009,7 +1034,6 @@ export class SpaceBrowserApp {
 
     for (const view of visibleViews) {
       this.mainWindow.setTopBrowserView(view);
-      view.webContents.focus();
     }
 
     if (this.sidebarView) {

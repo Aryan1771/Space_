@@ -23,6 +23,7 @@ import {
   History,
   Home,
   Camera,
+  KeyRound,
   Languages,
   LayoutDashboard,
   MessageCircleMore,
@@ -178,6 +179,7 @@ const featureGroups: Array<{ title: string; Icon: LucideIcon; status: string; it
 
 const settingsSections = [
   "Appearance",
+  "Autofill and Passwords",
   "Themes",
   "Mods",
   "Sounds",
@@ -190,7 +192,7 @@ const settingsSections = [
   "Advanced"
 ];
 
-type UtilityPanel = "all" | "shields" | "tabs" | "history" | "performance" | "ai" | "utilities" | "settings";
+type UtilityPanel = "shields" | "tabs" | "history" | "performance" | "ai" | "utilities" | "settings";
 type SpeedDialEntry = { id: string; title: string; url: string; color?: string };
 type SpeedDialDraft = SpeedDialEntry & { isNew?: boolean; sourceDefaultId?: string };
 type WeatherState = { status: "idle" | "loading" | "ready" | "error"; temperature?: number; city?: string; label: string };
@@ -204,6 +206,16 @@ const localPageTabs: Array<{ id: Exclude<LocalPageId, "start" | "notes">; label:
   { id: "settings", label: "Settings", url: "space://settings" },
   { id: "bookmarks", label: "Bookmarks", url: "space://bookmarks" },
   { id: "extensions", label: "Extensions", url: "space://extensions" }
+];
+
+const utilityPanels: Array<{ id: UtilityPanel; label: string; Icon: LucideIcon; tip: string }> = [
+  { id: "shields", label: "Shields", Icon: ShieldCheck, tip: "Privacy and site protections" },
+  { id: "tabs", label: "Tabs", Icon: LayoutDashboard, tip: "Search tabs, pin tabs, and split view" },
+  { id: "history", label: "History", Icon: History, tip: "Recent pages and quick cleanup" },
+  { id: "performance", label: "GX Control", Icon: Cpu, tip: "Tab sleep and performance behavior" },
+  { id: "ai", label: "AI", Icon: Sparkles, tip: "Summarize, explain, rewrite, translate, and code" },
+  { id: "utilities", label: "Tools", Icon: Puzzle, tip: "Screenshot, cleaner, PiP, extensions, and DevTools" },
+  { id: "settings", label: "Settings", Icon: SlidersHorizontal, tip: "Jump to settings sections" }
 ];
 
 const featureAudit: Array<{ group: string; items: Array<{ name: string; status: FeatureStatus; note: string }> }> = [
@@ -289,14 +301,19 @@ export function App() {
   const [snapshot, setSnapshot] = useState<BrowserStateSnapshot>(emptyState);
   const [address, setAddress] = useState("https://www.google.com");
   const [sidebarWidth, setSidebarWidth] = useState(380);
+  const [utilityWidth, setUtilityWidth] = useState(372);
   const [tabSearch, setTabSearch] = useState("");
-  const [activeUtilityPanel, setActiveUtilityPanel] = useState<UtilityPanel>("all");
+  const [activeUtilityPanel, setActiveUtilityPanel] = useState<UtilityPanel>("shields");
   const [resizingSidebar, setResizingSidebar] = useState(false);
+  const [resizingUtility, setResizingUtility] = useState(false);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const [speedDialDraft, setSpeedDialDraft] = useState<SpeedDialDraft | null>(null);
   const [weather, setWeather] = useState<WeatherState>({ status: "idle", label: "Use location" });
   const lastDragTarget = useRef<string | null>(null);
   const sidebarPinnedRef = useRef(false);
+  const utilityDockRef = useRef<HTMLDivElement | null>(null);
+  const leftToolbarRef = useRef<HTMLDivElement | null>(null);
+  const leftPanelRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     window.space.getSnapshot().then((data) => {
@@ -320,7 +337,7 @@ export function App() {
   useEffect(() => {
     if (!resizingSidebar) return;
     function handleMove(event: MouseEvent) {
-      const nextWidth = Math.max(360, Math.min(Math.max(360, window.innerWidth - 324), event.clientX - 64));
+      const nextWidth = Math.max(360, Math.min(Math.max(360, window.innerWidth - 220), event.clientX - 64));
       setSidebarWidth(nextWidth);
       void window.space.resizeSidebar(nextWidth, sidebarPinnedRef.current);
     }
@@ -334,6 +351,42 @@ export function App() {
       window.removeEventListener("mouseup", stopResize);
     };
   }, [resizingSidebar]);
+
+  useEffect(() => {
+    if (!resizingUtility) return;
+    function handleMove(event: MouseEvent) {
+      const maxWidth = Math.min(680, Math.max(340, window.innerWidth - 112));
+      const nextWidth = Math.max(320, Math.min(maxWidth, window.innerWidth - event.clientX - 14));
+      setUtilityWidth(nextWidth);
+    }
+    function stopResize() {
+      setResizingUtility(false);
+    }
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", stopResize, { once: true });
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", stopResize);
+    };
+  }, [resizingUtility]);
+
+  useEffect(() => {
+    function closeFloatingPanels(event: PointerEvent) {
+      const target = event.target as Node | null;
+      if (!target) return;
+      const inUtility = utilityDockRef.current?.contains(target);
+      if (snapshot.utilityDockOpen && !inUtility && !(target instanceof Element && target.closest(".right-dock-peek"))) {
+        void window.space.setUtilityDockOpen(false);
+      }
+      const inLeftOverlay = leftToolbarRef.current?.contains(target) || leftPanelRef.current?.contains(target);
+      const inRail = target instanceof Element && target.closest(".space-sidebar");
+      if (snapshot.sidebarOpen && !snapshot.sidebarPinned && !inLeftOverlay && !inRail) {
+        void window.space.tabAction("close-sidebar");
+      }
+    }
+    document.addEventListener("pointerdown", closeFloatingPanels, true);
+    return () => document.removeEventListener("pointerdown", closeFloatingPanels, true);
+  }, [snapshot.sidebarOpen, snapshot.sidebarPinned, snapshot.utilityDockOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -456,7 +509,7 @@ export function App() {
     await window.space.setUtilityDockOpen(shouldOpen);
   }
 
-  const showUtilityPanel = (panel: UtilityPanel) => activeUtilityPanel === "all" || activeUtilityPanel === panel;
+  const showUtilityPanel = (panel: UtilityPanel) => activeUtilityPanel === panel;
 
   async function openSidebarTarget(app: (typeof sidebarApps)[number]) {
     if (app.url.startsWith("space://") && activeTab) {
@@ -518,7 +571,7 @@ export function App() {
       </aside>
 
       {snapshot.sidebarOpen && (
-        <div className={`sidebar-panel-toolbar ${snapshot.sidebarPinned ? "docked" : "overlay"}`} style={{ left: 64, width: sidebarWidth }}>
+        <div ref={leftToolbarRef} className={`sidebar-panel-toolbar ${snapshot.sidebarPinned ? "docked" : "overlay"}`} style={{ left: 64, width: sidebarWidth }}>
           <div className="sidebar-panel-title">
             <strong>{activeSidebarApp?.name ?? "Panel"}</strong>
             <span>{snapshot.sidebarPinned ? "Docked" : "Overlay"}</span>
@@ -546,7 +599,7 @@ export function App() {
       )}
 
       {snapshot.sidebarOpen && activeSidebarApp?.url.startsWith("space://") && (
-        <aside className={`sidebar-native-panel ${snapshot.sidebarPinned ? "docked" : "overlay"}`} style={{ left: 64, width: sidebarWidth }}>
+        <aside ref={leftPanelRef} className={`sidebar-native-panel ${snapshot.sidebarPinned ? "docked" : "overlay"}`} style={{ left: 64, width: sidebarWidth }}>
           {renderSidebarPanel({
             appId: activeSidebarApp.id,
             snapshot,
@@ -676,7 +729,7 @@ export function App() {
               <button className="toolbar-utility" onClick={() => activeTab && void window.space.navigate(activeTab.id, "space://settings")} title="Settings" data-tip="Settings">
                 <CircleUserRound size={18} />
               </button>
-              <button className={`toolbar-utility ${snapshot.utilityDockOpen ? "active" : ""}`} onClick={() => void toggleUtilityPanel("all")} title="Toggle right controls" data-tip="Controls">
+              <button className={`toolbar-utility ${snapshot.utilityDockOpen ? "active" : ""}`} onClick={() => void toggleUtilityPanel("shields")} title="Toggle right controls" data-tip="Controls">
                 <PanelRightOpen size={18} />
               </button>
             </div>
@@ -784,12 +837,27 @@ export function App() {
           )}
 
           {snapshot.utilityDockOpen ? (
-          <div className={`utility-dock panel-${activeUtilityPanel}`}>
+          <div ref={utilityDockRef} className={`utility-dock panel-${activeUtilityPanel}`} style={{ width: utilityWidth }}>
+            <div className="utility-resizer" onMouseDown={() => setResizingUtility(true)} title="Drag to resize controls" data-tip="Resize controls" />
             <div className="utility-dock-header">
-              <strong>{activeUtilityPanel === "all" ? "Controls" : panelTitle(activeUtilityPanel)}</strong>
-              <button onClick={() => void window.space.setUtilityDockOpen(false)} title="Collapse right controls">
+              <strong>{panelTitle(activeUtilityPanel)}</strong>
+              <button onClick={() => void window.space.setUtilityDockOpen(false)} title="Collapse right controls" data-tip="Close controls">
                 <X size={16} />
               </button>
+            </div>
+            <div className="control-switcher" aria-label="Controls sections">
+              {utilityPanels.map(({ id, label, Icon, tip }) => (
+                <button
+                  key={id}
+                  className={activeUtilityPanel === id ? "active" : ""}
+                  onClick={() => setActiveUtilityPanel(id)}
+                  title={tip}
+                  data-tip={tip}
+                >
+                  <Icon size={16} />
+                  {label}
+                </button>
+              ))}
             </div>
             {showUtilityPanel("shields") && (
             <section className="glass-panel compact">
@@ -999,7 +1067,7 @@ export function App() {
             )}
           </div>
           ) : (
-            <button className="right-dock-peek" onClick={() => void toggleUtilityPanel("all")} title="Open controls">
+            <button className="right-dock-peek" onClick={() => void toggleUtilityPanel("shields")} title="Open controls" data-tip="Open controls">
               <PanelRightOpen size={18} />
             </button>
           )}
@@ -1063,7 +1131,6 @@ export function App() {
 
 function panelTitle(panel: UtilityPanel) {
   const titles: Record<UtilityPanel, string> = {
-    all: "Controls",
     shields: "Shields",
     tabs: "Tabs",
     history: "History",
@@ -1313,6 +1380,34 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
               <ExternalLink size={17} />
               Manage account
             </button>
+          </div>
+        </section>
+
+        <section className="native-section" id="autofill-and-passwords">
+          <h3>Autofill and Passwords</h3>
+          <div className="password-manager-card">
+            <div>
+              <KeyRound size={24} />
+              <strong>Password manager</strong>
+              <span>Chromium can save site credentials in the browser profile. Space_ surfaces the setting here and keeps local profile data on this PC.</span>
+            </div>
+            <div className="settings-toggle-list compact-list">
+              <button className="active" data-tip="Let Chromium offer to save passwords for websites you sign in to.">
+                <BadgeCheck size={18} />
+                <strong>Offer to save passwords</strong>
+                <span>On</span>
+              </button>
+              <button className="active" data-tip="Let websites use passkeys in normal full tabs. Sidebar message panels keep passkeys disabled to avoid surprise popups.">
+                <Fingerprint size={18} />
+                <strong>Passkeys in full tabs</strong>
+                <span>On</span>
+              </button>
+              <button data-tip="Space_ sync needs a future account server, so passwords stay local for now.">
+                <CloudSun size={18} />
+                <strong>Password sync</strong>
+                <span>Local only</span>
+              </button>
+            </div>
           </div>
         </section>
 
