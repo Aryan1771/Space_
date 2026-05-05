@@ -27,6 +27,23 @@ type BrowserTab = {
 
 const blockedHosts = ["doubleclick.net", "googleadservices.com", "googlesyndication.com"];
 const adBlockLists = "https://easylist.to/easylist/easylist.txt";
+const trackingParams = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_term",
+  "utm_content",
+  "utm_id",
+  "fbclid",
+  "gclid",
+  "dclid",
+  "msclkid",
+  "mc_cid",
+  "mc_eid",
+  "igshid",
+  "si",
+  "spm"
+];
 const railWidth = 64;
 const chromeHeight = 86;
 const sidebarHeaderHeight = 58;
@@ -331,6 +348,11 @@ export class SpaceBrowserApp {
         callback({ redirectURL: details.url.replace("http://", "https://") });
         return;
       }
+      const cleanedUrl = merged.trackers ? this.stripTrackingParams(details.url) : details.url;
+      if (cleanedUrl !== details.url) {
+        callback({ redirectURL: cleanedUrl });
+        return;
+      }
       if ((merged.ads || merged.trackers) && blockedHosts.some((host) => details.url.includes(host))) {
         callback({ cancel: true });
         return;
@@ -393,9 +415,25 @@ export class SpaceBrowserApp {
   private normalizeUrl(value: string) {
     const trimmed = value.trim();
     if (trimmed.startsWith("space://")) return trimmed;
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
-    if (trimmed.includes(".") && !trimmed.includes(" ")) return `https://${trimmed}`;
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return this.stripTrackingParams(trimmed);
+    if (trimmed.includes(".") && !trimmed.includes(" ")) return this.stripTrackingParams(`https://${trimmed}`);
     return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
+  }
+
+  private stripTrackingParams(value: string) {
+    try {
+      const url = new URL(value);
+      let changed = false;
+      for (const param of trackingParams) {
+        if (url.searchParams.has(param)) {
+          url.searchParams.delete(param);
+          changed = true;
+        }
+      }
+      return changed ? url.toString() : value;
+    } catch {
+      return value;
+    }
   }
 
   private isInternalStartUrl(value: string) {
@@ -422,6 +460,9 @@ export class SpaceBrowserApp {
     if (action === "reload" && typeof payload.tabId === "string") return this.reloadTab(payload.tabId);
     if (action === "private-window") return this.createTab({ url: "space://start", private: true });
     if (action === "split" && typeof payload.tabId === "string") return this.splitTab(payload.tabId);
+    if (action === "devtools" && typeof payload.tabId === "string") return this.openDevTools(payload.tabId);
+    if (action === "wayback" && typeof payload.tabId === "string") return this.openWayback(payload.tabId);
+    if (action === "speedreader" && typeof payload.tabId === "string") return this.applySpeedreader(payload.tabId);
     if (action === "close-sidebar") return this.closeSidebar();
     if (action === "toggle-sidebar-pin") return this.toggleSidebarPin();
   }
@@ -514,6 +555,46 @@ export class SpaceBrowserApp {
     if (!tab) return;
     tab.record.isSplitParticipant = true;
     await this.createTab({ url: tab.record.url, private: tab.record.private, split: true });
+  }
+
+  private openDevTools(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    tab?.view.webContents.openDevTools({ mode: "detach" });
+  }
+
+  private async openWayback(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (!tab || tab.record.url.startsWith("space://")) return;
+    await this.navigate(tabId, `https://web.archive.org/web/*/${tab.record.url}`);
+  }
+
+  private async applySpeedreader(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (!tab || tab.record.url.startsWith("space://")) return;
+    await tab.view.webContents
+      .executeJavaScript(
+        `
+        (() => {
+          document.documentElement.classList.toggle("space-speedreader");
+          let style = document.getElementById("space-speedreader-style");
+          if (!style) {
+            style = document.createElement("style");
+            style.id = "space-speedreader-style";
+            style.textContent = \`
+              html.space-speedreader body { max-width: 860px !important; margin: 0 auto !important; padding: 32px !important; line-height: 1.7 !important; background: #11131a !important; color: #f4f6ff !important; }
+              html.space-speedreader header, html.space-speedreader nav, html.space-speedreader aside, html.space-speedreader footer, html.space-speedreader iframe, html.space-speedreader [role="banner"], html.space-speedreader [role="navigation"], html.space-speedreader [aria-label*="ad" i] { display: none !important; }
+              html.space-speedreader article, html.space-speedreader main, html.space-speedreader p { color: #f4f6ff !important; font-family: Georgia, "Times New Roman", serif !important; }
+              html.space-speedreader a { color: #8bc3ff !important; }
+              html.space-speedreader img, html.space-speedreader video { max-width: 100% !important; height: auto !important; }
+            \`;
+            document.head.append(style);
+          }
+          return document.documentElement.classList.contains("space-speedreader");
+        })();
+      `,
+        true
+      )
+      .catch(() => {});
   }
 
   private reorderTab(tabId: string, targetTabId: string) {

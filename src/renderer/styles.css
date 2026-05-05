@@ -287,6 +287,40 @@ body {
   gap: 12px;
 }
 
+.coverage-meter {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.coverage-meter strong,
+.coverage-meter span {
+  display: block;
+}
+
+.coverage-meter span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.coverage-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.coverage-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--success), var(--accent), var(--accent-2));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 44%, transparent);
+}
+
 .feature-audit-group {
   display: grid;
   gap: 8px;

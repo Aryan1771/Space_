@@ -220,8 +220,11 @@ const featureAudit: Array<{ group: string; items: Array<{ name: string; status: 
       { name: "Ad and tracker blocking", status: "working", note: "EasyList blocker plus request interception." },
       { name: "Cookie blocking", status: "working", note: "Third-party cookie stripping by default, without breaking first-party login." },
       { name: "HTTPS upgrade", status: "working", note: "HTTP requests are upgraded when Shields allow it." },
+      { name: "URL tracking protection", status: "working", note: "Common tracking parameters are stripped before navigation." },
       { name: "Script blocking", status: "partial", note: "Per-site/global toggle is present; fine-grained script UI still needs expansion." },
       { name: "Fingerprinting protection", status: "partial", note: "Best-effort hardening only; not Brave parity yet." },
+      { name: "Wayback Machine", status: "working", note: "Active page can be opened in the Internet Archive." },
+      { name: "Speedreader", status: "partial", note: "Reader CSS mode exists; full article extraction is future work." },
       { name: "Tor and VPN", status: "removed", note: "Removed from UI rather than faking network infrastructure." }
     ]
   },
@@ -230,12 +233,20 @@ const featureAudit: Array<{ group: string; items: Array<{ name: string; status: 
     items: [
       { name: "Chromium websites", status: "working", note: "Real Electron Chromium BrowserViews render normal sites." },
       { name: "Extensions", status: "partial", note: "Chrome Web Store opens and developer Load Unpacked is available." },
+      { name: "Developer Tools", status: "working", note: "Chromium DevTools opens for the active tab." },
       { name: "Picture in Picture", status: "working", note: "Manual and auto PiP hooks are present." },
       { name: "Split tabs and tab islands", status: "partial", note: "Split and island metadata are present; full collapsible islands need a deeper tab strip pass." },
       { name: "Private windows", status: "partial", note: "Private in-memory tabs exist; separate private BrowserWindow polish is next." }
     ]
   }
 ];
+
+const featureTotals = featureAudit.flatMap((group) => group.items).reduce(
+  (totals, item) => ({ ...totals, [item.status]: totals[item.status] + 1 }),
+  { working: 0, partial: 0, planned: 0, removed: 0 } as Record<FeatureStatus, number>
+);
+const featureTotalCount = Object.values(featureTotals).reduce((sum, count) => sum + count, 0);
+const featureCompletion = Math.round(((featureTotals.working + featureTotals.partial * 0.5) / featureTotalCount) * 100);
 
 const defaultSpeedDial = [
   { id: "speedtest", title: "Speedtest", url: "https://www.speedtest.net", color: "#ffffff" },
@@ -963,6 +974,18 @@ export function App() {
                   <Trash2 size={17} />
                   Cleaner
                 </button>
+                <button className="tool-button" onClick={() => activeTab && void window.space.tabAction("speedreader", { tabId: activeTab.id })}>
+                  <Eye size={17} />
+                  Speedreader
+                </button>
+                <button className="tool-button" onClick={() => activeTab && void window.space.tabAction("wayback", { tabId: activeTab.id })}>
+                  <Clock3 size={17} />
+                  Wayback
+                </button>
+                <button className="tool-button" onClick={() => activeTab && void window.space.tabAction("devtools", { tabId: activeTab.id })}>
+                  <Code2 size={17} />
+                  DevTools
+                </button>
                 <button className="tool-button" onClick={() => void window.space.openSidebarApp("music")}>
                   <Music4 size={17} />
                   Music
@@ -1186,6 +1209,15 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
 
         <section className="native-section">
           <h3>GX + Brave Feature Coverage</h3>
+          <div className="coverage-meter">
+            <div>
+              <strong>{featureCompletion}% v1 coverage</strong>
+              <span>{featureTotals.working} working, {featureTotals.partial} partial, {featureTotals.planned} planned, {featureTotals.removed} removed</span>
+            </div>
+            <div className="coverage-track" aria-label="Feature coverage">
+              <span style={{ width: `${featureCompletion}%` }} />
+            </div>
+          </div>
           <div className="feature-audit">
             {featureAudit.map((group) => (
               <div className="feature-audit-group" key={group.group}>
