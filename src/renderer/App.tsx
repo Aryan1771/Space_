@@ -60,6 +60,7 @@ import {
   Copy,
   Edit3,
   Image as ImageIcon,
+  MapPin,
   Save,
   Square,
   X,
@@ -192,6 +193,7 @@ const settingsSections = [
 type UtilityPanel = "all" | "shields" | "tabs" | "history" | "performance" | "ai" | "utilities" | "settings";
 type SpeedDialEntry = { id: string; title: string; url: string; color?: string };
 type SpeedDialDraft = SpeedDialEntry & { isNew?: boolean; sourceDefaultId?: string };
+type WeatherState = { status: "idle" | "loading" | "ready" | "error"; temperature?: number; city?: string; label: string };
 type FeatureStatus = "working" | "partial" | "planned" | "removed";
 type LocalPageId = "start" | "settings" | "mods" | "history" | "downloads" | "bookmarks" | "extensions" | "notes";
 
@@ -292,6 +294,7 @@ export function App() {
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const [speedDialDraft, setSpeedDialDraft] = useState<SpeedDialDraft | null>(null);
+  const [weather, setWeather] = useState<WeatherState>({ status: "idle", label: "Use location" });
   const lastDragTarget = useRef<string | null>(null);
   const sidebarPinnedRef = useRef(false);
 
@@ -331,6 +334,42 @@ export function App() {
       window.removeEventListener("mouseup", stopResize);
     };
   }, [resizingSidebar]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWeather(latitude: number, longitude: number) {
+      setWeather({ status: "loading", label: "Loading weather" });
+      try {
+        const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m&timezone=auto`;
+        const weatherResponse = await fetch(weatherUrl);
+        const weatherData = (await weatherResponse.json()) as { current?: { temperature_2m?: number } };
+        if (cancelled) return;
+        const temp = weatherData.current?.temperature_2m;
+        const gpsLabel = `${latitude.toFixed(2)}, ${longitude.toFixed(2)}`;
+        setWeather({
+          status: "ready",
+          temperature: typeof temp === "number" ? temp : undefined,
+          city: gpsLabel,
+          label: typeof temp === "number" ? `${Math.round(temp)} C` : "Weather"
+        });
+      } catch {
+        if (!cancelled) setWeather({ status: "error", label: "Weather unavailable" });
+      }
+    }
+
+    if (!("geolocation" in navigator)) {
+      setWeather({ status: "error", label: "Location unavailable" });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => void loadWeather(position.coords.latitude, position.coords.longitude),
+      () => setWeather({ status: "error", label: "Enable location" }),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 900000 }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const activeTab = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId) ?? null;
   const activeLocalPage = getLocalPageId(activeTab?.url);
@@ -533,6 +572,12 @@ export function App() {
                   draggable
                   className={`tab-pill ${tab.id === snapshot.activeTabId ? "active" : ""} ${tab.isPinned ? "pinned" : ""}`}
                   onClick={() => void window.space.tabAction("activate", { tabId: tab.id })}
+                  onMouseDown={(event) => {
+                    if (event.button === 1) {
+                      event.preventDefault();
+                      void window.space.tabAction("close", { tabId: tab.id });
+                    }
+                  }}
                   onDragStart={(event) => {
                     setDraggedTabId(tab.id);
                     lastDragTarget.current = tab.id;
@@ -625,6 +670,9 @@ export function App() {
               <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("downloads")} title="Downloads" data-tip="Downloads">
                 <Download size={18} />
               </button>
+              <button className="toolbar-utility" onClick={() => void window.space.tabAction("new-window")} title="New window" data-tip="New window">
+                <ExternalLink size={18} />
+              </button>
               <button className="toolbar-utility" onClick={() => activeTab && void window.space.navigate(activeTab.id, "space://settings")} title="Settings" data-tip="Settings">
                 <CircleUserRound size={18} />
               </button>
@@ -653,17 +701,17 @@ export function App() {
               </div>
 
               <div className="home-widgets">
-                <button className="profile-widget">
+                <button className="profile-widget" onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://accounts.google.com/")} title="Sign in with Google" data-tip="Google account">
                   <div className="widget-avatar">
                     <SpaceLogoMark />
                   </div>
-                  <strong>Aryboss1234</strong>
-                  <span>GX ME</span>
+                  <strong>Space_ Account</strong>
+                  <span>Google sign-in</span>
                 </button>
-                <button className="weather-widget">
+                <button className="weather-widget" title={weather.status === "error" ? weather.label : "Live weather from Open-Meteo"} data-tip="Live weather">
                   <CloudSun size={28} />
-                  <strong>28 C</strong>
-                  <span>Ghaziabad</span>
+                  <strong>{weather.label}</strong>
+                  <span><MapPin size={13} /> {weather.city ?? "GPS location"}</span>
                 </button>
               </div>
 
@@ -678,6 +726,12 @@ export function App() {
                     tabIndex={0}
                     style={{ "--tile": tileColor } as React.CSSProperties}
                     onClick={() => activeTab && void window.space.navigate(activeTab.id, entry.url)}
+                    onAuxClick={(event) => {
+                      if (event.button === 1) {
+                        event.preventDefault();
+                        void window.space.tabAction("new", { private: false, url: entry.url });
+                      }
+                    }}
                     onKeyDown={(event) => event.key === "Enter" && activeTab && void window.space.navigate(activeTab.id, entry.url)}
                   >
                     <span className="dial-logo-wrap">
@@ -1244,6 +1298,21 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
                 <strong>{theme.hint}</strong>
               </button>
             ))}
+          </div>
+        </section>
+
+        <section className="native-section" id="account">
+          <h3>Space_ Account</h3>
+          <p className="panel-note">Use a Google account for web sign-ins and Space_ profile setup. Full Space_ cloud sync needs a future account server.</p>
+          <div className="inline-actions">
+            <button onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://accounts.google.com/")}>
+              <CircleUserRound size={17} />
+              Sign in with Google
+            </button>
+            <button onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://myaccount.google.com/")}>
+              <ExternalLink size={17} />
+              Manage account
+            </button>
           </div>
         </section>
 

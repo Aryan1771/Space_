@@ -891,8 +891,7 @@ body {
   padding: 0;
 }
 
-.workspace-body.web-active .start-surface,
-.workspace-body.web-active .right-dock-peek {
+.workspace-body.web-active .start-surface {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
@@ -902,12 +901,9 @@ body {
   overflow: auto;
 }
 
-.workspace-body.with-utility {
-  grid-template-columns: 1fr 340px;
-}
-
+.workspace-body.with-utility,
 .workspace-body.utility-collapsed {
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
 }
 
 .start-surface {
@@ -1669,10 +1665,19 @@ body {
 }
 
 .utility-dock {
+  position: fixed;
+  z-index: 120;
+  top: 96px;
+  right: 14px;
+  bottom: 14px;
+  width: min(372px, calc(100vw - 112px));
   display: flex;
   flex-direction: column;
   gap: 18px;
   min-width: 0;
+  overflow: auto;
+  padding-right: 4px;
+  pointer-events: auto;
 }
 
 .utility-dock-header {
@@ -1691,12 +1696,14 @@ body {
 }
 
 .right-dock-peek {
-  position: sticky;
-  top: 16px;
+  position: fixed;
+  z-index: 121;
+  top: 102px;
+  right: 14px;
   width: 48px;
   height: 48px;
-  align-self: start;
   box-shadow: var(--shadow);
+  pointer-events: auto;
 }
 
 .glass-panel.compact {
@@ -1918,8 +1925,9 @@ body {
   }
 
   .utility-dock {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    top: 92px;
+    right: 10px;
+    width: min(360px, calc(100vw - 94px));
   }
 
   .feature-matrix {

@@ -48,7 +48,6 @@ const railWidth = 64;
 const chromeHeight = 86;
 const sidebarHeaderHeight = 58;
 const sidebarResizeGutter = 10;
-const utilityDockWidth = 358;
 const chromeLikeUserAgent =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
 
@@ -70,6 +69,7 @@ export class SpaceBrowserApp {
   async start() {
     await app.whenReady();
     await this.loadBlocker();
+    this.configureSession(session.defaultSession);
     this.registerProtocols();
     this.createWindow();
     this.registerIpc();
@@ -118,6 +118,7 @@ export class SpaceBrowserApp {
     this.mainWindow.webContents.on("page-title-updated", (event) => {
       event.preventDefault();
     });
+    this.bindBrowserShortcuts(this.mainWindow.webContents);
     this.mainWindow.webContents.on("did-finish-load", () => {
       this.layoutViews();
       this.updateWindowTitle();
@@ -288,7 +289,9 @@ export class SpaceBrowserApp {
 
   private bindViewEvents(tab: BrowserTab, tabSession: Electron.Session) {
     const wc = tab.view.webContents;
-    wc.setWindowOpenHandler(({ url }) => {
+    this.bindBrowserShortcuts(wc);
+    wc.setWindowOpenHandler((details) => {
+      const url = details.url;
       void this.createTab({ url, private: tab.record.private });
       return { action: "deny" };
     });
@@ -306,6 +309,7 @@ export class SpaceBrowserApp {
       tab.record.url = wc.getURL();
       tab.record.favicon = this.buildFaviconUrl(wc.getURL());
       tab.record.shieldState = this.resolveShieldState(wc.getURL());
+      void this.installPageEnhancements(tab);
       this.recordHistory(tab.record);
       this.applyPerformancePolicy(tab.record.id);
       this.updateWindowTitle();
@@ -338,6 +342,74 @@ export class SpaceBrowserApp {
         entry.savePath = item.getSavePath();
         this.publishSnapshot();
       });
+    });
+  }
+
+  private async installPageEnhancements(tab: BrowserTab) {
+    if (tab.record.url.startsWith("space://")) return;
+    await tab.view.webContents
+      .executeJavaScript(
+        `
+        (() => {
+          if (window.__spaceBrowserEnhancements) return true;
+          window.__spaceBrowserEnhancements = true;
+          document.addEventListener("auxclick", (event) => {
+            if (event.button !== 1) return;
+            const anchor = event.target && event.target.closest ? event.target.closest("a[href]") : null;
+            if (!anchor || anchor.target || event.defaultPrevented) return;
+            const href = anchor.href;
+            if (!href || href.startsWith("javascript:")) return;
+            event.preventDefault();
+            window.open(href, "_blank", "noopener,noreferrer");
+          }, true);
+          return true;
+        })();
+      `,
+        true
+      )
+      .catch(() => {});
+  }
+
+  private bindBrowserShortcuts(wc: Electron.WebContents) {
+    wc.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown") return;
+      const key = input.key.toLowerCase();
+      const ctrl = input.control || input.meta;
+      if (ctrl && input.shift && key === "t") {
+        event.preventDefault();
+        void this.restoreClosedTab();
+        return;
+      }
+      if (ctrl && input.shift && key === "n") {
+        event.preventDefault();
+        void this.createTab({ url: "space://start", private: true });
+        return;
+      }
+      if (input.alt && input.shift && key === "n") {
+        event.preventDefault();
+        if (this.mainWindow) {
+          void dialog.showMessageBox(this.mainWindow, {
+            type: "info",
+            title: "Space_ Private Window with Tor",
+            message: "Tor routing is not enabled in this v1 build. Private windows use isolated in-memory browsing."
+          });
+        }
+        return;
+      }
+      if (ctrl && key === "t") {
+        event.preventDefault();
+        void this.createTab({ url: "space://start", private: false });
+        return;
+      }
+      if (ctrl && key === "w") {
+        event.preventDefault();
+        if (this.activeTabId) this.closeTab(this.activeTabId);
+        return;
+      }
+      if (ctrl && key === "n") {
+        event.preventDefault();
+        this.openDetachedWindow("space://start", "Start Page");
+      }
     });
   }
 
@@ -466,7 +538,8 @@ export class SpaceBrowserApp {
   }
 
   private async handleTabAction(action: string, payload: Record<string, unknown>) {
-    if (action === "new") return this.createTab({ url: "space://start", private: Boolean(payload.private) });
+    if (action === "new") return this.createTab({ url: typeof payload.url === "string" ? payload.url : "space://start", private: Boolean(payload.private) });
+    if (action === "new-window") return this.openDetachedWindow("space://start", "Start Page");
     if (action === "close" && typeof payload.tabId === "string") return this.closeTab(payload.tabId);
     if (action === "detach" && typeof payload.tabId === "string") return this.detachTab(payload.tabId);
     if (action === "activate" && typeof payload.tabId === "string") return this.activateTab(payload.tabId);
@@ -848,10 +921,9 @@ export class SpaceBrowserApp {
     this.sidebarWidth = this.clampSidebarWidth(this.sidebarWidth);
     const dockedSidebarWidth = this.sidebarOpen && this.sidebarPinned ? this.sidebarWidth : 0;
     const panelWidth = this.sidebarOpen ? this.sidebarWidth : 0;
-    const rightDockWidth = this.utilityDockOpen ? utilityDockWidth : 0;
     const contentX = railWidth + dockedSidebarWidth;
     const mainWidth = width - contentX;
-    const browserWidth = Math.max(240, mainWidth - rightDockWidth);
+    const browserWidth = Math.max(240, mainWidth);
     const splitTabs = [...this.tabs.values()].filter((tab) => tab.record.isSplitParticipant);
     const active = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
     const showBrowserSurface = !(active?.record.url.startsWith("space://"));
