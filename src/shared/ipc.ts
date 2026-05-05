@@ -4,6 +4,7 @@ export const IPC_CHANNELS = {
   navigate: "tab:navigate",
   sidebarOpen: "sidebar:open",
   sidebarResize: "sidebar:resize",
+  uiSetUtilityDock: "ui:set-utility-dock",
   settingsGet: "settings:get",
   settingsPatch: "settings:patch",
   shieldSetGlobal: "shields:set-global",
@@ -16,6 +17,7 @@ export const IPC_CHANNELS = {
   modsExport: "mods:export",
   modsToggle: "mods:toggle",
   aiRun: "ai:run",
+  pipRequest: "tools:pip",
   screenshot: "tools:screenshot",
   cleaner: "tools:cleaner"
 } as const;

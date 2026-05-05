@@ -5,7 +5,6 @@ import {
   ArrowRight,
   AtSign,
   BadgeCheck,
-  Bell,
   Bot,
   Bookmark,
   BrainCircuit,
@@ -25,7 +24,6 @@ import {
   Home,
   Camera,
   Languages,
-  Layers3,
   LayoutDashboard,
   MessageCircleMore,
   MessagesSquare,
@@ -57,6 +55,7 @@ import {
   Volume2,
   WandSparkles,
   Wallpaper,
+  CloudSun,
   X,
   Zap
 } from "lucide-react";
@@ -93,12 +92,15 @@ const emptyState: BrowserStateSnapshot = {
     downloadsPath: "",
     enableExperimentalExtensions: false,
     soundsEnabled: true,
+    autoPictureInPicture: true,
+    pictureInPictureOpacity: 0.92,
     notes: [],
     speedDial: []
   },
   sidebarOpen: false,
-  sidebarPinned: true,
-  activeSidebarAppId: null
+  sidebarPinned: false,
+  activeSidebarAppId: null,
+  utilityDockOpen: false
 };
 
 const themeClassMap: Record<ThemeId, string> = {
@@ -184,11 +186,38 @@ const settingsSections = [
   "Advanced"
 ];
 
+type UtilityPanel = "all" | "shields" | "tabs" | "history" | "performance" | "ai" | "utilities" | "settings";
+
+const defaultSpeedDial = [
+  { id: "speedtest", title: "Speedtest", url: "https://www.speedtest.net", color: "#ffffff" },
+  { id: "reddit", title: "reddit", url: "https://www.reddit.com", color: "#ffffff" },
+  { id: "keybr", title: "keybr.com", url: "https://www.keybr.com", color: "#e41313" },
+  { id: "stackoverflow", title: "stackoverflow", url: "https://stackoverflow.com", color: "#ffffff" },
+  { id: "youtube", title: "youtube.com", url: "https://www.youtube.com", color: "#f0191f" },
+  { id: "google", title: "Google", url: "https://www.google.com", color: "#ffffff" },
+  { id: "gmail", title: "Gmail", url: "https://mail.google.com", color: "#ffffff" },
+  { id: "outlook", title: "outlook.live.com", url: "https://outlook.live.com", color: "#38a8e8" },
+  { id: "hackerrank", title: "hackerrank.com", url: "https://www.hackerrank.com", color: "#f5f6f9" },
+  { id: "leetcode", title: "leetcode.com", url: "https://leetcode.com", color: "#f5f6f9" },
+  { id: "wikipedia", title: "Wikipedia", url: "https://www.wikipedia.org", color: "#ffffff" },
+  { id: "spotify", title: "Spotify", url: "https://open.spotify.com", color: "#ffffff" },
+  { id: "mega", title: "mega.io", url: "https://mega.io", color: "#f05a44" },
+  { id: "xbox", title: "XBOX", url: "https://www.xbox.com", color: "#ffffff" },
+  { id: "replit", title: "replit.com", url: "https://replit.com", color: "#f5f6f9" },
+  { id: "hackernews", title: "news.ycombinator", url: "https://news.ycombinator.com", color: "#ff7a00" },
+  { id: "pinterest", title: "Pinterest", url: "https://www.pinterest.com", color: "#ffffff" },
+  { id: "github", title: "GitHub", url: "https://github.com", color: "#ffffff" },
+  { id: "chess", title: "chess.com", url: "https://www.chess.com", color: "#24a853" },
+  { id: "amazon", title: "amazon", url: "https://www.amazon.com", color: "#ff9900" },
+  { id: "steam", title: "STEAM", url: "https://store.steampowered.com", color: "#ffffff" }
+];
+
 export function App() {
   const [snapshot, setSnapshot] = useState<BrowserStateSnapshot>(emptyState);
   const [address, setAddress] = useState("https://www.google.com");
   const [sidebarWidth, setSidebarWidth] = useState(380);
   const [tabSearch, setTabSearch] = useState("");
+  const [activeUtilityPanel, setActiveUtilityPanel] = useState<UtilityPanel>("all");
 
   useEffect(() => {
     window.space.getSnapshot().then((data) => {
@@ -233,10 +262,18 @@ export function App() {
     await patchSettings({ performanceProfile: { ...snapshot.settings.performanceProfile, ...patch } });
   }
 
+  async function toggleUtilityPanel(panel: UtilityPanel) {
+    const shouldOpen = !(snapshot.utilityDockOpen && activeUtilityPanel === panel);
+    setActiveUtilityPanel(panel);
+    await window.space.setUtilityDockOpen(shouldOpen);
+  }
+
+  const showUtilityPanel = (panel: UtilityPanel) => activeUtilityPanel === "all" || activeUtilityPanel === panel;
+
   return (
     <div className={`app-shell ${themeClassMap[snapshot.settings.theme]}`}>
       <div className="backdrop-grid" />
-      <aside className={`space-sidebar ${snapshot.sidebarPinned ? "is-pinned" : "is-float"}`}>
+      <aside className="space-sidebar">
         <div className="brand-lockup">
           <div className="brand-mark">S_</div>
           <div>
@@ -280,7 +317,36 @@ export function App() {
         </div>
       </aside>
 
-      <main className="browser-chrome" style={{ marginLeft: snapshot.sidebarOpen ? sidebarWidth : 0 }}>
+      {snapshot.sidebarOpen && (
+        <div className={`sidebar-panel-toolbar ${snapshot.sidebarPinned ? "docked" : "overlay"}`} style={{ left: 64, width: sidebarWidth }}>
+          <div className="sidebar-panel-title">
+            <strong>{activeSidebarApp?.name ?? "Panel"}</strong>
+            <span>{snapshot.sidebarPinned ? "Docked" : "Overlay"}</span>
+          </div>
+          <input
+            type="range"
+            min={320}
+            max={520}
+            value={sidebarWidth}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              setSidebarWidth(value);
+              void window.space.resizeSidebar(value, snapshot.sidebarPinned);
+            }}
+            title="Resize panel"
+          />
+          <div className="sidebar-toolbar-actions">
+            <button onClick={() => void window.space.tabAction("toggle-sidebar-pin")} title={snapshot.sidebarPinned ? "Unpin panel" : "Pin panel"}>
+              <Pin size={16} />
+            </button>
+            <button onClick={() => void window.space.tabAction("close-sidebar")} title="Close panel">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <main className="browser-chrome" style={{ marginLeft: snapshot.sidebarOpen && snapshot.sidebarPinned ? sidebarWidth : 0 }}>
         <header className="top-chrome">
           <div className="window-title-row">
             <div className="window-title">Space_ - {activeTab?.title ?? "New Tab"}</div>
@@ -296,7 +362,20 @@ export function App() {
                   onClick={() => void window.space.tabAction("activate", { tabId: tab.id })}
                 >
                   <span className="tab-title">{tab.title}</span>
+                  <span className="tab-actions">
                   <span className="tab-meta">{tab.isPinned ? "PIN" : tab.isSplitParticipant ? "SPLIT" : tab.isSuspended ? "SLEEP" : tab.islandId ?? "WEB"}</span>
+                    <span
+                      className="tab-close"
+                      role="button"
+                      title="Close tab"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void window.space.tabAction("close", { tabId: tab.id });
+                      }}
+                    >
+                      <X size={14} />
+                    </span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -322,11 +401,20 @@ export function App() {
             </div>
 
             <div className="address-shell">
-              <button className={`shield-pill ${activeTab?.shieldState.httpsUpgrade ? "on" : "off"}`}>
+              <button className={`shield-pill ${activeTab?.shieldState.httpsUpgrade ? "on" : "off"}`} onClick={() => void toggleUtilityPanel("shields")}>
+                <span className="shield-click-zone">
                 <ShieldCheck size={17} />
                 Shields
+                </span>
               </button>
               <input value={address} onChange={(event) => setAddress(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void navigate()} />
+              <button
+                className={`toolbar-utility ${snapshot.settings.autoPictureInPicture ? "active" : ""}`}
+                onClick={() => activeTab && void window.space.requestPictureInPicture(activeTab.id)}
+                title="Pop out playing video"
+              >
+                <MonitorPlay size={18} />
+              </button>
               <button className="toolbar-utility" onClick={() => activeTab && void window.space.toggleBookmark?.(activeTab.id)}>
                 <Star size={18} />
               </button>
@@ -336,6 +424,9 @@ export function App() {
               <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("settings")}>
                 <CircleUserRound size={18} />
               </button>
+              <button className={`toolbar-utility ${snapshot.utilityDockOpen ? "active" : ""}`} onClick={() => void toggleUtilityPanel("all")} title="Toggle right controls">
+                <PanelRightOpen size={18} />
+              </button>
             </div>
 
             <button className="go-button" onClick={() => void navigate()}>
@@ -344,67 +435,59 @@ export function App() {
           </div>
         </header>
 
-        <section className="workspace-body">
+        <section className={`workspace-body ${snapshot.utilityDockOpen ? "with-utility" : "utility-collapsed"}`}>
           <div className="start-surface">
-            <div className="hero-panel">
-              <div>
-                <div className="eyebrow">START PAGE</div>
-                <h1>Boost frames, block trackers, mod everything.</h1>
-                <p>Space_ merges Opera GX atmosphere with Brave-style shields in one Chromium desktop browser.</p>
+            <section className="gx-home">
+              <div className="gx-search-card">
+                <div className="search-provider-mark">G</div>
+                <input
+                  value={address === "space://start" ? "" : address}
+                  onChange={(event) => setAddress(event.target.value)}
+                  onKeyDown={(event) => event.key === "Enter" && void navigate()}
+                  placeholder="Search the web"
+                />
               </div>
-              <div className="hero-actions">
-                <button className="primary-button" onClick={() => void window.space.tabAction("new")}>
-                  <Plus size={18} />
-                  New Tab
+
+              <div className="home-widgets">
+                <button className="profile-widget">
+                  <div className="widget-avatar">S_</div>
+                  <strong>Aryboss1234</strong>
+                  <span>GX ME</span>
                 </button>
-                <button className="secondary-button" onClick={() => void window.space.openSidebarApp("settings")}>
-                  <SlidersHorizontal size={18} />
-                  Customize
+                <button className="weather-widget">
+                  <CloudSun size={28} />
+                  <strong>28 C</strong>
+                  <span>Ghaziabad</span>
                 </button>
               </div>
-            </div>
 
-            <div className="quick-actions-strip">
-              <button onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://www.google.com")}>
-                <Search size={18} />
-                Google
-              </button>
-              <button onClick={() => activeTab && void window.space.tabAction("pin", { tabId: activeTab.id })}>
-                <Pin size={18} />
-                Pin Tab
-              </button>
-              <button onClick={() => activeTab && void window.space.tabAction("split", { tabId: activeTab.id })}>
-                <SplitSquareHorizontal size={18} />
-                Split View
-              </button>
-              <button onClick={() => void window.space.tabAction("restore-closed")}>
-                <Clock3 size={18} />
-                Restore
-              </button>
-              <button onClick={() => void patchSettings({ enableExperimentalExtensions: !snapshot.settings.enableExperimentalExtensions })}>
-                <Puzzle size={18} />
-                Extensions {snapshot.settings.enableExperimentalExtensions ? "On" : "Labs"}
-              </button>
-            </div>
-
-            <section className="feature-matrix">
-              {featureGroups.map(({ title, Icon, status, items }) => (
-                <article className="feature-card" key={title}>
-                  <div className="feature-card-top">
-                    <Icon size={22} />
-                    <span>{status}</span>
-                  </div>
-                  <h2>{title}</h2>
-                  <div className="feature-tags">
-                    {items.map((item) => (
-                      <span key={item}>{item}</span>
-                    ))}
-                  </div>
-                </article>
-              ))}
+              <div className="speed-dial-wall">
+                {[...defaultSpeedDial, ...snapshot.settings.speedDial.filter((entry) => !defaultSpeedDial.some((dial) => dial.url === entry.url))].map((entry) => {
+                  const tileColor = "color" in entry && typeof entry.color === "string" ? entry.color : "#ffffff";
+                  return (
+                  <button
+                    key={entry.id}
+                    className="gx-dial"
+                    style={{ "--tile": tileColor } as React.CSSProperties}
+                    onClick={() => activeTab && void window.space.navigate(activeTab.id, entry.url)}
+                  >
+                    <span>{entry.title}</span>
+                  </button>
+                  );
+                })}
+              </div>
             </section>
 
-            <div className="content-grid">
+            <div className="settings-preview-strip">
+              {featureGroups.slice(0, 4).map(({ title, Icon }) => (
+                <button key={title} onClick={() => void toggleUtilityPanel(title.includes("Shields") ? "shields" : "settings")}>
+                  <Icon size={18} />
+                  {title}
+                </button>
+              ))}
+            </div>
+
+            <div className="content-grid start-secondary">
               <section className="glass-panel">
                 <div className="panel-header">
                   <h2>Speed Dial</h2>
@@ -460,7 +543,7 @@ export function App() {
               </section>
             </div>
 
-            <div className="customization-grid">
+            <div className="customization-grid start-secondary">
               <section className="glass-panel">
                 <div className="panel-header">
                   <h2>Themes</h2>
@@ -517,7 +600,15 @@ export function App() {
             </div>
           </div>
 
-          <div className="utility-dock">
+          {snapshot.utilityDockOpen ? (
+          <div className={`utility-dock panel-${activeUtilityPanel}`}>
+            <div className="utility-dock-header">
+              <strong>{activeUtilityPanel === "all" ? "Controls" : panelTitle(activeUtilityPanel)}</strong>
+              <button onClick={() => void window.space.setUtilityDockOpen(false)} title="Collapse right controls">
+                <X size={16} />
+              </button>
+            </div>
+            {showUtilityPanel("shields") && (
             <section className="glass-panel compact">
               <div className="panel-header">
                 <h2>Shields</h2>
@@ -536,7 +627,9 @@ export function App() {
                 {renderShieldToggle("Scripts", snapshot.settings.shieldDefaults.scripts, (value) => window.space.setGlobalShields({ scripts: value }))}
               </div>
             </section>
+            )}
 
+            {showUtilityPanel("tabs") && (
             <section className="glass-panel compact">
               <div className="panel-header">
                 <h2>Tabs</h2>
@@ -562,7 +655,9 @@ export function App() {
                 </button>
               </div>
             </section>
+            )}
 
+            {showUtilityPanel("history") && (
             <section className="glass-panel compact">
               <div className="panel-header">
                 <h2>History</h2>
@@ -593,7 +688,9 @@ export function App() {
                 </button>
               </div>
             </section>
+            )}
 
+            {showUtilityPanel("performance") && (
             <section className="glass-panel compact">
               <div className="panel-header">
                 <h2>GX Control</h2>
@@ -616,7 +713,9 @@ export function App() {
                 <span>Network {snapshot.settings.performanceProfile.throttleNetworkPreset}</span>
               </div>
             </section>
+            )}
 
+            {showUtilityPanel("ai") && (
             <section className="glass-panel compact">
               <div className="panel-header">
                 <h2>AI Actions</h2>
@@ -640,15 +739,28 @@ export function App() {
                 })}
               </div>
             </section>
+            )}
 
+            {showUtilityPanel("utilities") && (
             <section className="glass-panel compact">
               <div className="panel-header">
                 <h2>Utilities</h2>
                 <span>Browser tools</span>
               </div>
               <div className="tool-grid">
-                <button className="tool-button" onClick={() => void window.space.takeScreenshot()}>
+                <button className="tool-button" onClick={() => activeTab && void window.space.requestPictureInPicture(activeTab.id)}>
                   <MonitorPlay size={17} />
+                  Video Pop-out
+                </button>
+                <button
+                  className={`tool-button ${snapshot.settings.autoPictureInPicture ? "active" : ""}`}
+                  onClick={() => void patchSettings({ autoPictureInPicture: !snapshot.settings.autoPictureInPicture })}
+                >
+                  <PlaySquare size={17} />
+                  Auto PiP {snapshot.settings.autoPictureInPicture ? "ON" : "OFF"}
+                </button>
+                <button className="tool-button" onClick={() => void window.space.takeScreenshot()}>
+                  <Camera size={17} />
                   Screenshot
                 </button>
                 <button className="tool-button" onClick={() => void window.space.runCleaner(["cache", "cookies", "storage"])}>
@@ -664,8 +776,14 @@ export function App() {
                   Tor
                 </button>
               </div>
+              <div className="metric-strip">
+                <span>Transparent PiP opacity {Math.round((snapshot.settings.pictureInPictureOpacity ?? 0.92) * 100)}%</span>
+                <span>Auto opens when leaving a playing video tab</span>
+              </div>
             </section>
+            )}
 
+            {showUtilityPanel("settings") && (
             <section className="glass-panel compact">
               <div className="panel-header">
                 <h2>Settings</h2>
@@ -679,41 +797,31 @@ export function App() {
                 ))}
               </div>
             </section>
+            )}
           </div>
+          ) : (
+            <button className="right-dock-peek" onClick={() => void toggleUtilityPanel("all")} title="Open controls">
+              <PanelRightOpen size={18} />
+            </button>
+          )}
         </section>
-
-        {snapshot.sidebarOpen && (
-          <div className="sidebar-resize-rail">
-            <div className="sidebar-panel-meta">
-              <strong>{activeSidebarApp?.name ?? "Panel"}</strong>
-              <span>{snapshot.sidebarPinned ? "Pinned" : "Floating"}</span>
-            </div>
-            <div className="inline-actions">
-              <button onClick={() => void window.space.tabAction("toggle-sidebar-pin")}>
-                <Pin size={16} />
-                {snapshot.sidebarPinned ? "Unpin" : "Pin"}
-              </button>
-              <button onClick={() => void window.space.tabAction("close-sidebar")}>
-                <X size={16} />
-                Close
-              </button>
-            </div>
-            <input
-              type="range"
-              min={320}
-              max={520}
-              value={sidebarWidth}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                setSidebarWidth(value);
-                void window.space.resizeSidebar(value, snapshot.sidebarPinned);
-              }}
-            />
-          </div>
-        )}
       </main>
     </div>
   );
+}
+
+function panelTitle(panel: UtilityPanel) {
+  const titles: Record<UtilityPanel, string> = {
+    all: "Controls",
+    shields: "Shields",
+    tabs: "Tabs",
+    history: "History",
+    performance: "GX Control",
+    ai: "AI Actions",
+    utilities: "Utilities",
+    settings: "Settings"
+  };
+  return titles[panel];
 }
 
 function nextTheme(theme: ThemeId): ThemeId {

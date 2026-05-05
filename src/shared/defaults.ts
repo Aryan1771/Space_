@@ -43,6 +43,8 @@ export const defaultSettings: AppSettings = {
   downloadsPath: "",
   enableExperimentalExtensions: false,
   soundsEnabled: true,
+  autoPictureInPicture: true,
+  pictureInPictureOpacity: 0.92,
   notes: [],
   speedDial: [
     { id: "google", title: "Google", url: "https://www.google.com" },

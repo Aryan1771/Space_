@@ -9,6 +9,7 @@ declare global {
       navigate: (tabId: string, value: string) => Promise<unknown>;
       openSidebarApp: (appId: string) => Promise<unknown>;
       resizeSidebar: (width: number, pinned: boolean) => Promise<unknown>;
+      setUtilityDockOpen: (open: boolean) => Promise<unknown>;
       patchSettings: (patch: Record<string, unknown>) => Promise<unknown>;
       setGlobalShields: (patch: Record<string, unknown>) => Promise<unknown>;
       setSiteShields: (rule: SiteShieldRule) => Promise<unknown>;
@@ -19,6 +20,7 @@ declare global {
       exportMods: () => Promise<unknown>;
       toggleMod: (modId: string, enabled: boolean) => Promise<unknown>;
       runAiAction: (payload: AiActionPayload) => Promise<unknown>;
+      requestPictureInPicture: (tabId?: string) => Promise<unknown>;
       takeScreenshot: () => Promise<unknown>;
       runCleaner: (targets: string[]) => Promise<unknown>;
     };

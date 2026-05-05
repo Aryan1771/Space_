@@ -13,6 +13,7 @@ const api = {
   navigate: (tabId: string, value: string) => ipcRenderer.invoke(IPC_CHANNELS.navigate, { tabId, value }),
   openSidebarApp: (appId: string) => ipcRenderer.invoke(IPC_CHANNELS.sidebarOpen, { appId }),
   resizeSidebar: (width: number, pinned: boolean) => ipcRenderer.invoke(IPC_CHANNELS.sidebarResize, { width, pinned }),
+  setUtilityDockOpen: (open: boolean) => ipcRenderer.invoke(IPC_CHANNELS.uiSetUtilityDock, { open }),
   patchSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke(IPC_CHANNELS.settingsPatch, patch),
   setGlobalShields: (patch: Record<string, unknown>) => ipcRenderer.invoke(IPC_CHANNELS.shieldSetGlobal, patch),
   setSiteShields: (rule: SiteShieldRule) => ipcRenderer.invoke(IPC_CHANNELS.shieldSetSite, rule),
@@ -23,6 +24,7 @@ const api = {
   exportMods: () => ipcRenderer.invoke(IPC_CHANNELS.modsExport),
   toggleMod: (modId: string, enabled: boolean) => ipcRenderer.invoke(IPC_CHANNELS.modsToggle, { modId, enabled }),
   runAiAction: (payload: AiActionPayload) => ipcRenderer.invoke(IPC_CHANNELS.aiRun, payload),
+  requestPictureInPicture: (tabId?: string) => ipcRenderer.invoke(IPC_CHANNELS.pipRequest, { tabId }),
   takeScreenshot: () => ipcRenderer.invoke(IPC_CHANNELS.screenshot),
   runCleaner: (targets: string[]) => ipcRenderer.invoke(IPC_CHANNELS.cleaner, targets)
 };

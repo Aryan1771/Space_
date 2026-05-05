@@ -13,6 +13,8 @@
     "build": "npm run typecheck && npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.node.json",
     "build:renderer": "vite build",
+    "pack": "npm run build && electron-builder --dir",
+    "installer": "npm run pack && powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-installer.ps1",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.renderer.json",
     "start": "electron ."
   },
@@ -34,10 +36,47 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
     "electron": "^41.5.0",
+    "electron-builder": "^26.8.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.9.2",
     "vite": "^7.1.2",
     "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.space.browser",
+    "productName": "Space_",
+    "copyright": "Copyright (c) 2026 Aryan",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/app-256.ico",
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Space_-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Space_",
+      "license": "installer/LICENSE.txt",
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

@@ -11,25 +11,30 @@ Space_ is a Chromium-based desktop browser built with Electron, React, Tailwind,
 - Theme presets: GX Red, Neon Green, Electric Blue, Cyber Yellow, Dark Mode, and Light Mode.
 - GX Mods scaffold with local import/export for JSON mod manifests.
 - GX Control scaffold for background tab behavior, suspension policy, network presets, and animation levels.
-- Utilities for screenshots, cleaner actions, downloads, bookmarks, private tabs, and Tor/VPN/sync surfaces marked as future work.
+- Utilities for screenshots, cleaner actions, downloads, bookmarks, private tabs, auto Picture-in-Picture for playing videos, and Tor/VPN/sync surfaces marked as future work.
 
 ## Run Space_
 
-Double-click:
+For a normal Windows app launch, use the packaged executable after building:
 
 ```powershell
-run-space.bat
+release\win-unpacked\Space_.exe
 ```
 
-Or run from VS Code:
+To create the installer:
 
 ```powershell
 npm install
-npm run build
-npm start
+npm run installer
 ```
 
-The VS Code task **Run Space_** builds and launches the Electron app.
+The installer is created at:
+
+```powershell
+release\Space_-Setup-0.1.0.exe
+```
+
+The installed desktop and Start Menu shortcuts launch `Space_` directly without opening a command prompt.
 
 ## Development
 
@@ -41,6 +46,5 @@ npm run dev
 ## Production build
 
 ```powershell
-npm run build
-npm start
+npm run pack
 ```

@@ -27,9 +27,12 @@ type BrowserTab = {
 
 const blockedHosts = ["doubleclick.net", "googleadservices.com", "googlesyndication.com"];
 const adBlockLists = "https://easylist.to/easylist/easylist.txt";
-const railWidth = 86;
-const chromeHeight = 160;
+const railWidth = 64;
+const chromeHeight = 104;
+const sidebarHeaderHeight = 58;
 const utilityDockWidth = 358;
+const chromeLikeUserAgent =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
 
 export class SpaceBrowserApp {
   private mainWindow: BrowserWindow | null = null;
@@ -39,9 +42,10 @@ export class SpaceBrowserApp {
   private closedTabs: TabRecord[] = [];
   private activeTabId: string | null = null;
   private sidebarOpen = false;
-  private sidebarPinned = true;
+  private sidebarPinned = false;
   private sidebarWidth = 380;
   private activeSidebarAppId: string | null = null;
+  private utilityDockOpen = false;
   private blocker: ElectronBlocker | null = null;
   private readonly rendererUrl = process.env.VITE_DEV_SERVER_URL;
 
@@ -130,6 +134,11 @@ export class SpaceBrowserApp {
       this.layoutViews();
       this.publishSnapshot();
     });
+    ipcMain.handle(IPC_CHANNELS.uiSetUtilityDock, async (_event, { open }) => {
+      this.utilityDockOpen = Boolean(open);
+      this.layoutViews();
+      this.publishSnapshot();
+    });
     ipcMain.handle(IPC_CHANNELS.settingsPatch, async (_event, patch) => {
       const settings = { ...this.getSettings(), ...patch } as AppSettings;
       appStore.set("settings", settings);
@@ -167,12 +176,24 @@ export class SpaceBrowserApp {
       this.publishSnapshot();
     });
     ipcMain.handle(IPC_CHANNELS.aiRun, async (_event, payload: AiActionPayload) => this.runAiAction(payload));
+    ipcMain.handle(IPC_CHANNELS.pipRequest, async (_event, { tabId }) => this.requestPictureInPicture(typeof tabId === "string" ? tabId : undefined));
     ipcMain.handle(IPC_CHANNELS.screenshot, async () => this.takeScreenshot());
     ipcMain.handle(IPC_CHANNELS.cleaner, async (_event, targets: string[]) => this.runCleaner(targets));
   }
 
   private getSettings() {
-    return appStore.get("settings") ?? defaultSettings;
+    const stored = appStore.get("settings") ?? {};
+    return {
+      ...defaultSettings,
+      ...stored,
+      shieldDefaults: { ...defaultSettings.shieldDefaults, ...(stored as Partial<AppSettings>).shieldDefaults },
+      performanceProfile: { ...defaultSettings.performanceProfile, ...(stored as Partial<AppSettings>).performanceProfile },
+      sidebarApps: (stored as Partial<AppSettings>).sidebarApps ?? defaultSettings.sidebarApps,
+      startPageWidgets: (stored as Partial<AppSettings>).startPageWidgets ?? defaultSettings.startPageWidgets,
+      siteShieldRules: (stored as Partial<AppSettings>).siteShieldRules ?? defaultSettings.siteShieldRules,
+      notes: (stored as Partial<AppSettings>).notes ?? defaultSettings.notes,
+      speedDial: (stored as Partial<AppSettings>).speedDial ?? defaultSettings.speedDial
+    } as AppSettings;
   }
 
   private createPartition(isPrivate: boolean) {
@@ -180,6 +201,7 @@ export class SpaceBrowserApp {
   }
 
   private async createTab(input: { url: string; private: boolean; pinned?: boolean; split?: boolean }) {
+    const previousActive = this.activeTabId ? this.tabs.get(this.activeTabId) ?? null : null;
     const id = `tab-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const partition = this.createPartition(input.private);
     const tabSession = session.fromPartition(partition, { cache: !input.private });
@@ -192,6 +214,7 @@ export class SpaceBrowserApp {
         backgroundThrottling: this.getSettings().performanceProfile.backgroundTabPolicy !== "aggressive"
       }
     });
+    view.webContents.setUserAgent(chromeLikeUserAgent);
 
     if (this.blocker) {
       this.blocker.enableBlockingInSession(tabSession);
@@ -218,6 +241,7 @@ export class SpaceBrowserApp {
     this.tabs.set(id, browserTab);
     this.bindViewEvents(browserTab, tabSession);
     this.mainWindow?.addBrowserView(view);
+    void this.requestPictureInPictureForTab(previousActive, true);
     this.activeTabId = id;
 
     if (this.isInternalStartUrl(input.url)) {
@@ -228,7 +252,7 @@ export class SpaceBrowserApp {
       return;
     }
 
-    await view.webContents.loadURL(this.normalizeUrl(input.url));
+    await this.loadTabUrl(browserTab, this.normalizeUrl(input.url));
     this.layoutViews();
     this.publishSnapshot();
   }
@@ -305,6 +329,7 @@ export class SpaceBrowserApp {
 
     tabSession.webRequest.onBeforeSendHeaders((details, callback) => {
       const merged = this.resolveShieldState(details.url);
+      details.requestHeaders["User-Agent"] = chromeLikeUserAgent;
       if (merged.cookies !== "allow") {
         delete details.requestHeaders.Cookie;
       }
@@ -397,7 +422,7 @@ export class SpaceBrowserApp {
 
     tab.record.loading = true;
     tab.record.url = url;
-    await tab.view.webContents.loadURL(url);
+    await this.loadTabUrl(tab, url);
     this.activeTabId = tabId;
     this.layoutViews();
     this.publishSnapshot();
@@ -405,6 +430,8 @@ export class SpaceBrowserApp {
 
   private activateTab(tabId: string) {
     if (!this.tabs.has(tabId)) return;
+    const previousActive = this.activeTabId && this.activeTabId !== tabId ? this.tabs.get(this.activeTabId) ?? null : null;
+    void this.requestPictureInPictureForTab(previousActive, true);
     this.activeTabId = tabId;
     const tab = this.tabs.get(tabId)!;
     tab.record.lastActiveAt = Date.now();
@@ -422,6 +449,10 @@ export class SpaceBrowserApp {
     this.tabs.delete(tabId);
     const next = [...this.tabs.keys()][0] ?? null;
     this.activeTabId = next;
+    if (!next) {
+      void this.createTab({ url: "space://start", private: false });
+      return;
+    }
     this.layoutViews();
     this.updateWindowTitle();
     this.publishSnapshot();
@@ -483,6 +514,7 @@ export class SpaceBrowserApp {
           sandbox: true
         }
       });
+      this.sidebarView.webContents.setUserAgent(chromeLikeUserAgent);
       this.mainWindow.addBrowserView(this.sidebarView);
     }
 
@@ -491,12 +523,115 @@ export class SpaceBrowserApp {
 
     if (appEntry.url.startsWith("space://")) {
       const html = this.renderInternalPanel(appEntry.id, appEntry.name);
-      this.sidebarView.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      void this.loadSidebarUrl(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
     } else {
-      void this.sidebarView.webContents.loadURL(appEntry.url);
+      void this.loadSidebarUrl(appEntry.url);
     }
     this.layoutViews();
     this.publishSnapshot();
+  }
+
+  private async loadTabUrl(tab: BrowserTab, url: string) {
+    try {
+      await tab.view.webContents.loadURL(url);
+    } catch (error) {
+      if (this.isAbortedNavigation(error)) return;
+      tab.record.loading = false;
+      tab.record.title = "Load failed";
+      this.publishSnapshot();
+      throw error;
+    }
+  }
+
+  private async loadSidebarUrl(url: string) {
+    if (!this.sidebarView) return;
+    try {
+      await this.sidebarView.webContents.loadURL(url);
+    } catch (error) {
+      if (this.isAbortedNavigation(error)) return;
+      throw error;
+    }
+  }
+
+  private async requestPictureInPicture(tabId?: string) {
+    const tab = tabId ? this.tabs.get(tabId) : this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+    const result = await this.requestPictureInPictureForTab(tab ?? null, false);
+    if (!result.ok && this.mainWindow) {
+      dialog.showMessageBox(this.mainWindow, {
+        type: "info",
+        title: "Space_ Picture in Picture",
+        message: result.reason ?? "No active playing video was found on this page."
+      });
+    }
+    return result;
+  }
+
+  private async requestPictureInPictureForTab(tab: BrowserTab | null, automatic: boolean): Promise<{ ok: boolean; reason?: string; mode?: string }> {
+    if (!tab) return { ok: false, reason: "No active tab." };
+    const settings = this.getSettings();
+    if (automatic && !settings.autoPictureInPicture) {
+      return { ok: false, reason: "Auto Picture in Picture is off." };
+    }
+    if (tab.record.url.startsWith("space://")) {
+      return { ok: false, reason: "Picture in Picture needs a web page with a playing video." };
+    }
+
+    const opacity = Math.max(0.55, Math.min(1, settings.pictureInPictureOpacity ?? 0.92));
+    const script = `
+      (async () => {
+        const videos = Array.from(document.querySelectorAll("video"))
+          .filter((video) => !video.paused && !video.ended && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0)
+          .sort((a, b) => (b.videoWidth * b.videoHeight) - (a.videoWidth * a.videoHeight));
+        const video = videos[0];
+        if (!video) return { ok: false, reason: "No active playing video was found on this page." };
+        video.disablePictureInPicture = false;
+
+        if ("documentPictureInPicture" in window && window.documentPictureInPicture && window.documentPictureInPicture.requestWindow) {
+          if (window.__spacePipWindow && !window.__spacePipWindow.closed) {
+            return { ok: true, mode: "document-picture-in-picture" };
+          }
+          const placeholder = document.createComment("space-picture-in-picture-placeholder");
+          video.parentNode && video.parentNode.insertBefore(placeholder, video);
+          const pipWindow = await window.documentPictureInPicture.requestWindow({
+            width: Math.min(720, Math.max(360, video.videoWidth || 520)),
+            height: Math.min(420, Math.max(220, video.videoHeight || 300))
+          });
+          window.__spacePipWindow = pipWindow;
+          pipWindow.document.body.innerHTML =
+            '<style>html,body{width:100%;height:100%;margin:0;overflow:hidden;background:rgba(0,0,0,.18);}video{width:100%;height:100%;object-fit:contain;background:rgba(0,0,0,.18);}</style>';
+          video.dataset.spacePipOpacity = video.style.opacity || "";
+          video.style.opacity = "${opacity}";
+          pipWindow.document.body.append(video);
+          pipWindow.addEventListener("pagehide", () => {
+            video.style.opacity = video.dataset.spacePipOpacity || "";
+            delete video.dataset.spacePipOpacity;
+            if (placeholder.parentNode) {
+              placeholder.parentNode.insertBefore(video, placeholder);
+              placeholder.remove();
+            }
+          }, { once: true });
+          return { ok: true, mode: "transparent-document-picture-in-picture" };
+        }
+
+        if (document.pictureInPictureElement === video) return { ok: true, mode: "native-picture-in-picture" };
+        await video.requestPictureInPicture();
+        return { ok: true, mode: "native-picture-in-picture" };
+      })();
+    `;
+
+    try {
+      return (await tab.view.webContents.executeJavaScript(script, true)) as { ok: boolean; reason?: string; mode?: string };
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : "Picture in Picture could not start." };
+    }
+  }
+
+  private isAbortedNavigation(error: unknown) {
+    return Boolean(
+      error &&
+        typeof error === "object" &&
+        ((error as { code?: string; errno?: number }).code === "ERR_ABORTED" || (error as { errno?: number }).errno === -3)
+    );
   }
 
   private closeSidebar() {
@@ -611,10 +746,12 @@ export class SpaceBrowserApp {
   private layoutViews() {
     if (!this.mainWindow) return;
     const [width, height] = this.mainWindow.getContentSize();
+    const dockedSidebarWidth = this.sidebarOpen && this.sidebarPinned ? this.sidebarWidth : 0;
     const panelWidth = this.sidebarOpen ? this.sidebarWidth : 0;
-    const contentX = railWidth + panelWidth;
+    const rightDockWidth = this.utilityDockOpen ? utilityDockWidth : 0;
+    const contentX = railWidth + dockedSidebarWidth;
     const mainWidth = width - contentX;
-    const browserWidth = Math.max(700, mainWidth - utilityDockWidth);
+    const browserWidth = Math.max(700, mainWidth - rightDockWidth);
     const splitTabs = [...this.tabs.values()].filter((tab) => tab.record.isSplitParticipant);
     const active = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
     const showBrowserSurface = !(active?.record.url.startsWith("space://start"));
@@ -650,7 +787,7 @@ export class SpaceBrowserApp {
 
     if (this.sidebarView) {
       if (this.sidebarOpen) {
-        this.sidebarView.setBounds({ x: railWidth, y: 0, width: panelWidth, height });
+        this.sidebarView.setBounds({ x: railWidth, y: sidebarHeaderHeight, width: panelWidth, height: height - sidebarHeaderHeight });
         this.sidebarView.setAutoResize({ height: true });
         this.mainWindow.setTopBrowserView(this.sidebarView);
       } else {
@@ -732,7 +869,7 @@ export class SpaceBrowserApp {
     if (this.sidebarView) {
       const query = encodeURIComponent(`${payload.action.toUpperCase()}\n\nTitle: ${title}\nURL: ${url}\n\n${selected || "Use the current page context."}`);
       if (targetUrl.includes("chat.openai.com")) {
-        await this.sidebarView.webContents.loadURL(`${targetUrl}/?q=${query}`);
+        await this.loadSidebarUrl(`${targetUrl}/?q=${query}`);
       }
     }
   }
@@ -793,7 +930,8 @@ export class SpaceBrowserApp {
       settings: this.getSettings(),
       sidebarOpen: this.sidebarOpen,
       sidebarPinned: this.sidebarPinned,
-      activeSidebarAppId: this.activeSidebarAppId
+      activeSidebarAppId: this.activeSidebarAppId,
+      utilityDockOpen: this.utilityDockOpen
     };
   }
 

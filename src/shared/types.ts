@@ -69,6 +69,8 @@ export interface AppSettings {
   downloadsPath: string;
   enableExperimentalExtensions: boolean;
   soundsEnabled: boolean;
+  autoPictureInPicture: boolean;
+  pictureInPictureOpacity: number;
   notes: string[];
   speedDial: Array<{ id: string; title: string; url: string }>;
 }
@@ -124,6 +126,7 @@ export interface BrowserStateSnapshot {
   sidebarOpen: boolean;
   sidebarPinned: boolean;
   activeSidebarAppId: string | null;
+  utilityDockOpen: boolean;
 }
 
 export interface AiActionPayload {

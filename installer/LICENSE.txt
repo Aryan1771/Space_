@@ -1,0 +1,31 @@
+Space_ Browser End User License Agreement
+Version 0.1.0
+
+Please read this agreement before installing or using Space_.
+
+1. License
+Space_ is provided to you for personal, educational, and development use. You may install and use the application on Windows computers that you own or control. You may not sell, rent, sublicense, or misrepresent Space_ as an official product of Opera, Brave, Google, Meta, Microsoft, or any other third party.
+
+2. Third-Party Technology
+Space_ is built with Electron, Chromium, React, Tailwind CSS, and other open-source libraries. Those components remain governed by their own licenses. Chromium powers the web rendering engine; Space_ is not Google Chrome and is not affiliated with Google. Design inspiration from Opera GX and Brave is used only as product direction; Space_ is not affiliated with Opera or Brave.
+
+3. Browser Features and Security
+Space_ includes experimental Shields, ad and tracker blocking, cookie controls, HTTPS upgrade behavior, and privacy-related settings. These features are provided on a best-effort basis and do not guarantee complete security, anonymity, malware protection, scam detection, or privacy. VPN, Tor, sync, and some extension features may be placeholders or future-work surfaces unless explicitly marked as available in the application.
+
+4. User Data
+Space_ stores settings, history, bookmarks, downloads metadata, mods metadata, and other browser data on your computer. Private browsing windows are intended to reduce local persistence, but they do not make you anonymous to websites, networks, internet providers, or other software on your device.
+
+5. Mods and Customization
+User-imported mods, themes, scripts, sounds, wallpapers, or icon packs are used at your own risk. Install mods only from sources you trust. Space_ is not responsible for damage, data loss, privacy issues, or undesirable behavior caused by third-party or user-created mods.
+
+6. No Warranty
+Space_ is provided "as is" without warranties of any kind, including warranties of merchantability, fitness for a particular purpose, non-infringement, availability, performance, compatibility, or security. Websites can change their compatibility requirements at any time.
+
+7. Limitation of Liability
+To the maximum extent permitted by law, the authors and contributors are not liable for any indirect, incidental, special, consequential, exemplary, or punitive damages, or for loss of data, profits, privacy, goodwill, or system functionality arising from use of Space_.
+
+8. Updates
+Space_ may be updated to improve security, compatibility, features, and performance. Installed versions may not update automatically unless an updater is added later.
+
+9. Acceptance
+By installing or using Space_, you agree to this license. If you do not agree, do not install or use the application.
