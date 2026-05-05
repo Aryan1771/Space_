@@ -27,10 +27,10 @@ import {
   LayoutDashboard,
   MessageCircleMore,
   MessagesSquare,
+  Minus,
   MonitorPlay,
   MousePointer2,
   Music4,
-  Network,
   NotebookTabs,
   Orbit,
   PackageOpen,
@@ -57,6 +57,9 @@ import {
   WandSparkles,
   Wallpaper,
   CloudSun,
+  Copy,
+  Edit3,
+  Square,
   X,
   Zap
 } from "lucide-react";
@@ -96,12 +99,14 @@ const emptyState: BrowserStateSnapshot = {
     autoPictureInPicture: true,
     pictureInPictureOpacity: 0.92,
     notes: [],
+    hiddenSpeedDialIds: [],
     speedDial: []
   },
   sidebarOpen: false,
   sidebarPinned: false,
   activeSidebarAppId: null,
-  utilityDockOpen: false
+  utilityDockOpen: false,
+  isMaximized: false
 };
 
 const themeClassMap: Record<ThemeId, string> = {
@@ -163,13 +168,7 @@ const featureGroups: Array<{ title: string; Icon: LucideIcon; status: string; it
     title: "Utilities",
     Icon: Puzzle,
     status: "Built in",
-    items: ["Screenshot", "GX Cleaner", "Video pop-out", "Downloads", "Chrome extensions", "Sync scaffold"]
-  },
-  {
-    title: "Future Rails",
-    Icon: Network,
-    status: "Truthful v1",
-    items: ["VPN scaffold", "Tor unavailable", "Sync unavailable", "Marketplace scaffold", "Extension experiment"]
+    items: ["Screenshot", "GX Cleaner", "Video pop-out", "Downloads", "Chrome extensions", "Developer extensions"]
   }
 ];
 
@@ -260,6 +259,12 @@ export function App() {
   }, [resizingSidebar]);
 
   const activeTab = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId) ?? null;
+  const activeTabIsStart = !activeTab || activeTab.url.startsWith("space://start");
+  const speedDialEntries = useMemo(() => {
+    const hidden = new Set(snapshot.settings.hiddenSpeedDialIds ?? []);
+    const custom = snapshot.settings.speedDial.filter((entry) => !defaultSpeedDial.some((dial) => dial.id === entry.id || dial.url === entry.url));
+    return [...defaultSpeedDial.filter((entry) => !hidden.has(entry.id)), ...custom];
+  }, [snapshot.settings.hiddenSpeedDialIds, snapshot.settings.speedDial]);
   const filteredTabs = useMemo(() => {
     const value = tabSearch.trim().toLowerCase();
     if (!value) return snapshot.tabs;
@@ -283,6 +288,49 @@ export function App() {
 
   async function patchSettings(patch: Partial<AppSettings>) {
     await window.space.patchSettings(patch);
+  }
+
+  async function addSpeedDial() {
+    const title = window.prompt("Speed Dial name");
+    if (!title?.trim()) return;
+    const url = window.prompt("Website address", "https://");
+    if (!url?.trim()) return;
+    await patchSettings({
+      speedDial: [
+        ...snapshot.settings.speedDial,
+        { id: `custom-${Date.now()}`, title: title.trim(), url: url.trim(), color: "#ffffff" }
+      ]
+    });
+  }
+
+  async function editSpeedDial(entry: { id: string; title: string; url: string; color?: string }) {
+    const title = window.prompt("Speed Dial name", entry.title);
+    if (!title?.trim()) return;
+    const url = window.prompt("Website address", entry.url);
+    if (!url?.trim()) return;
+    const isDefault = defaultSpeedDial.some((dial) => dial.id === entry.id);
+    if (isDefault) {
+      await patchSettings({
+        hiddenSpeedDialIds: [...new Set([...(snapshot.settings.hiddenSpeedDialIds ?? []), entry.id])],
+        speedDial: [
+          ...snapshot.settings.speedDial,
+          { id: `custom-${Date.now()}`, title: title.trim(), url: url.trim(), color: entry.color ?? "#ffffff" }
+        ]
+      });
+      return;
+    }
+    await patchSettings({
+      speedDial: snapshot.settings.speedDial.map((item) => (item.id === entry.id ? { ...item, title: title.trim(), url: url.trim() } : item))
+    });
+  }
+
+  async function deleteSpeedDial(entry: { id: string; url: string }) {
+    const isDefault = defaultSpeedDial.some((dial) => dial.id === entry.id);
+    if (isDefault) {
+      await patchSettings({ hiddenSpeedDialIds: [...new Set([...(snapshot.settings.hiddenSpeedDialIds ?? []), entry.id])] });
+      return;
+    }
+    await patchSettings({ speedDial: snapshot.settings.speedDial.filter((item) => item.id !== entry.id) });
   }
 
   async function patchPerformance(patch: Partial<AppSettings["performanceProfile"]>) {
@@ -322,6 +370,7 @@ export function App() {
                 key={app.id}
                 className={`sidebar-app ${snapshot.activeSidebarAppId === app.id ? "active" : ""}`}
                 title={app.name}
+                data-tip={app.name}
                 aria-label={app.name}
                 onClick={() => void window.space.openSidebarApp(app.id)}
               >
@@ -337,10 +386,10 @@ export function App() {
         </div>
 
         <div className="sidebar-footer">
-          <button className="ghost-button" onClick={() => void patchSettings({ theme: nextTheme(snapshot.settings.theme) })}>
+            <button className="ghost-button" onClick={() => void patchSettings({ theme: nextTheme(snapshot.settings.theme) })}>
             <Palette size={18} />
           </button>
-          <button className="ghost-button" onClick={() => void window.space.tabAction("private-window")}>
+            <button className="ghost-button" onClick={() => void window.space.tabAction("private-window")}>
             <Shield size={18} />
           </button>
         </div>
@@ -353,15 +402,28 @@ export function App() {
             <span>{snapshot.sidebarPinned ? "Docked" : "Overlay"}</span>
           </div>
           <div className="sidebar-toolbar-actions">
-            <button onClick={() => void window.space.tabAction("toggle-sidebar-pin")} title={snapshot.sidebarPinned ? "Unpin panel" : "Pin panel"}>
+            <button onClick={() => void window.space.tabAction("toggle-sidebar-pin")} title={snapshot.sidebarPinned ? "Unpin panel" : "Pin panel"} data-tip={snapshot.sidebarPinned ? "Unpin panel" : "Pin panel"}>
               <Pin size={16} />
             </button>
-            <button onClick={() => void window.space.tabAction("close-sidebar")} title="Close panel">
+            <button onClick={() => void window.space.tabAction("close-sidebar")} title="Close panel" data-tip="Close panel">
               <X size={16} />
             </button>
           </div>
           <div className="sidebar-drag-resizer" onMouseDown={() => setResizingSidebar(true)} title="Drag to resize sidebar" />
         </div>
+      )}
+
+      {snapshot.sidebarOpen && activeSidebarApp?.url.startsWith("space://") && (
+        <aside className={`sidebar-native-panel ${snapshot.sidebarPinned ? "docked" : "overlay"}`} style={{ left: 64, width: sidebarWidth }}>
+          {renderSidebarPanel({
+            appId: activeSidebarApp.id,
+            snapshot,
+            activeTab,
+            patchSettings,
+            patchPerformance,
+            navigateInActiveTab: (url: string) => activeTab && window.space.navigate(activeTab.id, url)
+          })}
+        </aside>
       )}
 
       <main className="browser-chrome" style={{ marginLeft: snapshot.sidebarOpen && snapshot.sidebarPinned ? sidebarWidth : 0 }}>
@@ -417,34 +479,40 @@ export function App() {
                 </button>
               ))}
             </div>
-              <button className="new-tab-button" onClick={() => void window.space.tabAction("new")}>
+              <button className="new-tab-button" onClick={() => void window.space.tabAction("new")} title="New tab" data-tip="New tab">
               <Plus size={19} />
             </button>
             <div className="window-controls">
-              <button onClick={() => void window.space.windowControl("minimize")} title="Minimize">-</button>
-              <button onClick={() => void window.space.windowControl("maximize")} title="Maximize">□</button>
-              <button className="close-window" onClick={() => void window.space.windowControl("close")} title="Close">×</button>
+              <button onClick={() => void window.space.windowControl("minimize")} title="Minimize" data-tip="Minimize">
+                <Minus size={14} />
+              </button>
+              <button onClick={() => void window.space.windowControl("maximize")} title={snapshot.isMaximized ? "Restore" : "Maximize"} data-tip={snapshot.isMaximized ? "Restore" : "Maximize"}>
+                {snapshot.isMaximized ? <Copy size={13} /> : <Square size={13} />}
+              </button>
+              <button className="close-window" onClick={() => void window.space.windowControl("close")} title="Close" data-tip="Close">
+                <X size={14} />
+              </button>
             </div>
           </div>
 
           <div className="toolbar">
             <div className="toolbar-actions">
-              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("back", { tabId: activeTab.id })}>
+              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("back", { tabId: activeTab.id })} title="Back" data-tip="Back">
                 <ArrowLeft size={18} />
               </button>
-              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("forward", { tabId: activeTab.id })}>
+              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("forward", { tabId: activeTab.id })} title="Forward" data-tip="Forward">
                 <ArrowRight size={18} />
               </button>
-              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("reload", { tabId: activeTab.id })}>
+              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("reload", { tabId: activeTab.id })} title="Reload" data-tip="Reload">
                 <RefreshCcw size={18} />
               </button>
-              <button className="circle-button" onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://www.google.com")}>
+              <button className="circle-button" onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://www.google.com")} title="Home" data-tip="Home">
                 <Home size={18} />
               </button>
             </div>
 
             <div className="address-shell">
-              <button className={`shield-pill ${activeTab?.shieldState.httpsUpgrade ? "on" : "off"}`} onClick={() => void toggleUtilityPanel("shields")}>
+              <button className={`shield-pill ${activeTab?.shieldState.httpsUpgrade ? "on" : "off"}`} onClick={() => void toggleUtilityPanel("shields")} title="Open Shields controls" data-tip="Shields">
                 <span className="shield-click-zone">
                 <ShieldCheck size={17} />
                 Shields
@@ -455,19 +523,20 @@ export function App() {
                 className={`toolbar-utility ${snapshot.settings.autoPictureInPicture ? "active" : ""}`}
                 onClick={() => activeTab && void window.space.requestPictureInPicture(activeTab.id)}
                 title="Pop out playing video"
+                data-tip="Picture in picture"
               >
                 <MonitorPlay size={18} />
               </button>
-              <button className="toolbar-utility" onClick={() => activeTab && void window.space.toggleBookmark?.(activeTab.id)}>
+              <button className="toolbar-utility" onClick={() => activeTab && void window.space.toggleBookmark?.(activeTab.id)} title="Bookmark this page" data-tip="Bookmark">
                 <Star size={18} />
               </button>
-              <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("downloads")}>
+              <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("downloads")} title="Downloads" data-tip="Downloads">
                 <Download size={18} />
               </button>
-              <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("settings")}>
+              <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("settings")} title="Settings" data-tip="Settings">
                 <CircleUserRound size={18} />
               </button>
-              <button className={`toolbar-utility ${snapshot.utilityDockOpen ? "active" : ""}`} onClick={() => void toggleUtilityPanel("all")} title="Toggle right controls">
+              <button className={`toolbar-utility ${snapshot.utilityDockOpen ? "active" : ""}`} onClick={() => void toggleUtilityPanel("all")} title="Toggle right controls" data-tip="Controls">
                 <PanelRightOpen size={18} />
               </button>
             </div>
@@ -478,7 +547,7 @@ export function App() {
           </div>
         </header>
 
-        <section className={`workspace-body ${snapshot.utilityDockOpen ? "with-utility" : "utility-collapsed"}`}>
+        <section className={`workspace-body ${activeTabIsStart ? "start-active" : "web-active"} ${snapshot.utilityDockOpen ? "with-utility" : "utility-collapsed"}`}>
           <div className="start-surface">
             <section className="gx-home">
               <div className="gx-search-card">
@@ -507,19 +576,49 @@ export function App() {
               </div>
 
               <div className="speed-dial-wall">
-                {[...defaultSpeedDial, ...snapshot.settings.speedDial.filter((entry) => !defaultSpeedDial.some((dial) => dial.url === entry.url))].map((entry) => {
+                {speedDialEntries.map((entry) => {
                   const tileColor = "color" in entry && typeof entry.color === "string" ? entry.color : "#ffffff";
                   return (
-                  <button
+                  <div
                     key={entry.id}
                     className="gx-dial"
+                    role="button"
+                    tabIndex={0}
                     style={{ "--tile": tileColor } as React.CSSProperties}
                     onClick={() => activeTab && void window.space.navigate(activeTab.id, entry.url)}
+                    onKeyDown={(event) => event.key === "Enter" && activeTab && void window.space.navigate(activeTab.id, entry.url)}
                   >
                     <span>{entry.title}</span>
-                  </button>
+                    <span className="dial-edit-actions">
+                      <button
+                        type="button"
+                        title="Edit Speed Dial"
+                        data-tip="Edit"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void editSpeedDial(entry);
+                        }}
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete Speed Dial"
+                        data-tip="Delete"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void deleteSpeedDial(entry);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </span>
+                  </div>
                   );
                 })}
+                <button className="gx-dial add-dial" onClick={() => void addSpeedDial()} style={{ "--tile": "#202432" } as React.CSSProperties}>
+                  <span><Plus size={24} /> Add site</span>
+                </button>
               </div>
             </section>
 
@@ -816,9 +915,13 @@ export function App() {
                   <Music4 size={17} />
                   Music
                 </button>
-                <button className="tool-button" onClick={() => void window.space.tabAction("tor-window")}>
-                  <Shield size={17} />
-                  Tor
+                <button className="tool-button" onClick={() => activeTab && void window.space.openChromeWebStore(activeTab.id)}>
+                  <Store size={17} />
+                  Chrome Web Store
+                </button>
+                <button className="tool-button" onClick={() => void window.space.loadUnpackedExtension()}>
+                  <PackageOpen size={17} />
+                  Load Unpacked
                 </button>
               </div>
               <div className="metric-strip">
@@ -867,6 +970,203 @@ function panelTitle(panel: UtilityPanel) {
     settings: "Settings"
   };
   return titles[panel];
+}
+
+type SidebarPanelProps = {
+  appId: string;
+  snapshot: BrowserStateSnapshot;
+  activeTab: TabRecord | null;
+  patchSettings: (patch: Partial<AppSettings>) => Promise<void>;
+  patchPerformance: (patch: Partial<AppSettings["performanceProfile"]>) => Promise<void>;
+  navigateInActiveTab: (url: string) => Promise<unknown> | false | null;
+};
+
+function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPerformance, navigateInActiveTab }: SidebarPanelProps) {
+  if (appId === "settings") {
+    return (
+      <div className="native-panel-content">
+        <div className="native-panel-heading">
+          <SlidersHorizontal size={22} />
+          <div>
+            <strong>Settings</strong>
+            <span>Appearance, privacy, extensions, performance</span>
+          </div>
+        </div>
+
+        <section className="native-section">
+          <h3>Appearance</h3>
+          <div className="theme-grid native-theme-grid">
+            {themeOptions.map((theme) => (
+              <button
+                className={`theme-card ${snapshot.settings.theme === theme.id ? "active" : ""} theme-swatch-${theme.id}`}
+                key={theme.id}
+                onClick={() => void patchSettings({ theme: theme.id })}
+              >
+                <span>{theme.name}</span>
+                <strong>{theme.hint}</strong>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="native-section">
+          <h3>Shields</h3>
+          <div className="toggle-grid">
+            {renderShieldToggle("Ads", snapshot.settings.shieldDefaults.ads, (value) => window.space.setGlobalShields({ ads: value }))}
+            {renderShieldToggle("Trackers", snapshot.settings.shieldDefaults.trackers, (value) => window.space.setGlobalShields({ trackers: value }))}
+            {renderShieldToggle("HTTPS", snapshot.settings.shieldDefaults.httpsUpgrade, (value) => window.space.setGlobalShields({ httpsUpgrade: value }))}
+            {renderShieldToggle("Cookies", snapshot.settings.shieldDefaults.cookies !== "allow", (value) =>
+              window.space.setGlobalShields({ cookies: value ? "block-third-party" : "allow" })
+            )}
+            {renderShieldToggle("Scripts", snapshot.settings.shieldDefaults.scripts, (value) => window.space.setGlobalShields({ scripts: value }))}
+          </div>
+        </section>
+
+        <section className="native-section">
+          <h3>Performance</h3>
+          <div className="profile-buttons">
+            {(["balanced", "limit", "aggressive"] as const).map((policy) => (
+              <button
+                key={policy}
+                className={snapshot.settings.performanceProfile.backgroundTabPolicy === policy ? "active" : ""}
+                onClick={() => void patchPerformance({ backgroundTabPolicy: policy })}
+              >
+                <Cpu size={17} />
+                {policy}
+              </button>
+            ))}
+          </div>
+          <label className="setting-line">
+            Tab sleep minutes
+            <input
+              type="number"
+              min={5}
+              max={240}
+              value={snapshot.settings.performanceProfile.suspendThresholdMinutes}
+              onChange={(event) => void patchPerformance({ suspendThresholdMinutes: Number(event.target.value) })}
+            />
+          </label>
+        </section>
+
+        <section className="native-section">
+          <h3>Extensions</h3>
+          <div className="inline-actions">
+            <button onClick={() => activeTab && void window.space.openChromeWebStore(activeTab.id)}>
+              <Store size={17} />
+              Chrome Web Store
+            </button>
+            <button onClick={() => void window.space.loadUnpackedExtension()}>
+              <PackageOpen size={17} />
+              Load unpacked
+            </button>
+          </div>
+          <p className="panel-note">Chrome Web Store browsing opens in the active tab. Developer mode loads unpacked extensions for this Space_ session.</p>
+        </section>
+      </div>
+    );
+  }
+
+  if (appId === "history") {
+    return (
+      <div className="native-panel-content">
+        <div className="native-panel-heading">
+          <History size={22} />
+          <div>
+            <strong>History</strong>
+            <span>{snapshot.history.length} saved visits</span>
+          </div>
+        </div>
+        <div className="inline-actions">
+          <button onClick={() => void window.space.clearHistory()}>
+            <Trash2 size={17} />
+            Clear all
+          </button>
+        </div>
+        <div className="native-list">
+          {snapshot.history.map((entry) => (
+            <div className="native-row" key={entry.id}>
+              <button onClick={() => void navigateInActiveTab(entry.url)}>
+                <strong>{entry.title}</strong>
+                <span>{entry.url}</span>
+              </button>
+              <button className="icon-danger" title="Delete history item" data-tip="Delete" onClick={() => void window.space.deleteHistory(entry.id)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+          {snapshot.history.length === 0 && <p className="panel-note">No browsing history yet.</p>}
+        </div>
+      </div>
+    );
+  }
+
+  if (appId === "bookmarks") {
+    return (
+      <div className="native-panel-content">
+        <div className="native-panel-heading">
+          <Bookmark size={22} />
+          <div>
+            <strong>Bookmarks</strong>
+            <span>{snapshot.bookmarks.length} saved pages</span>
+          </div>
+        </div>
+        <div className="native-list">
+          {snapshot.bookmarks.map((entry) => (
+            <button className="native-link-row" key={entry.id} onClick={() => void navigateInActiveTab(entry.url)}>
+              <strong>{entry.title}</strong>
+              <span>{entry.url}</span>
+            </button>
+          ))}
+          {snapshot.bookmarks.length === 0 && <p className="panel-note">Use the star in the address bar to save pages.</p>}
+        </div>
+      </div>
+    );
+  }
+
+  if (appId === "downloads") {
+    return (
+      <div className="native-panel-content">
+        <div className="native-panel-heading">
+          <Download size={22} />
+          <div>
+            <strong>Downloads</strong>
+            <span>{snapshot.downloads.length} files</span>
+          </div>
+        </div>
+        <div className="native-list">
+          {snapshot.downloads.map((entry) => (
+            <div className="native-link-row" key={entry.id}>
+              <strong>{entry.fileName}</strong>
+              <span>{entry.status} - {Math.round((entry.receivedBytes / Math.max(1, entry.totalBytes)) * 100)}%</span>
+            </div>
+          ))}
+          {snapshot.downloads.length === 0 && <p className="panel-note">Downloads will appear here.</p>}
+        </div>
+      </div>
+    );
+  }
+
+  if (appId === "notes") {
+    return (
+      <div className="native-panel-content">
+        <div className="native-panel-heading">
+          <NotebookTabs size={22} />
+          <div>
+            <strong>Notes</strong>
+            <span>Quick local notes</span>
+          </div>
+        </div>
+        <textarea
+          className="notes-editor"
+          value={(snapshot.settings.notes ?? []).join("\n")}
+          onChange={(event) => void patchSettings({ notes: event.target.value.split("\n").filter(Boolean) })}
+          placeholder="Type a note and it will be saved locally."
+        />
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function SpaceLogoMark() {

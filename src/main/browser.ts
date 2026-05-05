@@ -75,8 +75,8 @@ export class SpaceBrowserApp {
     this.mainWindow = new BrowserWindow({
       width: 1600,
       height: 980,
-      minWidth: 1200,
-      minHeight: 760,
+      minWidth: 760,
+      minHeight: 520,
       title: "Space_",
       frame: false,
       backgroundColor: "#09070d",
@@ -91,6 +91,9 @@ export class SpaceBrowserApp {
     });
 
     this.mainWindow.on("resize", () => this.layoutViews());
+    this.mainWindow.on("maximize", () => this.publishSnapshot());
+    this.mainWindow.on("unmaximize", () => this.publishSnapshot());
+    this.mainWindow.on("restore", () => this.publishSnapshot());
     this.mainWindow.on("closed", () => {
       this.mainWindow = null;
     });
@@ -133,7 +136,7 @@ export class SpaceBrowserApp {
     ipcMain.handle(IPC_CHANNELS.navigate, async (_event, { tabId, value }) => this.navigate(tabId, value));
     ipcMain.handle(IPC_CHANNELS.sidebarOpen, async (_event, { appId }) => this.openSidebarApp(appId));
     ipcMain.handle(IPC_CHANNELS.sidebarResize, async (_event, { width, pinned }) => {
-      this.sidebarWidth = Math.max(320, Math.min(520, width));
+      this.sidebarWidth = this.clampSidebarWidth(width);
       this.sidebarPinned = pinned;
       this.layoutViews();
       this.publishSnapshot();
@@ -182,6 +185,8 @@ export class SpaceBrowserApp {
     });
     ipcMain.handle(IPC_CHANNELS.aiRun, async (_event, payload: AiActionPayload) => this.runAiAction(payload));
     ipcMain.handle(IPC_CHANNELS.pipRequest, async (_event, { tabId }) => this.requestPictureInPicture(typeof tabId === "string" ? tabId : undefined));
+    ipcMain.handle(IPC_CHANNELS.extensionLoadUnpacked, async () => this.loadUnpackedExtension());
+    ipcMain.handle(IPC_CHANNELS.extensionOpenStore, async (_event, { tabId }) => this.openChromeWebStore(typeof tabId === "string" ? tabId : undefined));
     ipcMain.handle(IPC_CHANNELS.screenshot, async () => this.takeScreenshot());
     ipcMain.handle(IPC_CHANNELS.cleaner, async (_event, targets: string[]) => this.runCleaner(targets));
   }
@@ -197,6 +202,7 @@ export class SpaceBrowserApp {
       startPageWidgets: (stored as Partial<AppSettings>).startPageWidgets ?? defaultSettings.startPageWidgets,
       siteShieldRules: (stored as Partial<AppSettings>).siteShieldRules ?? defaultSettings.siteShieldRules,
       notes: (stored as Partial<AppSettings>).notes ?? defaultSettings.notes,
+      hiddenSpeedDialIds: (stored as Partial<AppSettings>).hiddenSpeedDialIds ?? defaultSettings.hiddenSpeedDialIds,
       speedDial: (stored as Partial<AppSettings>).speedDial ?? defaultSettings.speedDial
     } as AppSettings;
   }
@@ -335,7 +341,8 @@ export class SpaceBrowserApp {
     tabSession.webRequest.onBeforeSendHeaders((details, callback) => {
       const merged = this.resolveShieldState(details.url);
       details.requestHeaders["User-Agent"] = chromeLikeUserAgent;
-      if (merged.cookies !== "allow") {
+      const requestContext = details as Electron.OnBeforeSendHeadersListenerDetails & { initiator?: string; referrer?: string };
+      if (this.shouldStripCookies(details.url, requestContext.initiator ?? requestContext.referrer, merged.cookies)) {
         delete details.requestHeaders.Cookie;
       }
       callback({ requestHeaders: details.requestHeaders });
@@ -344,6 +351,7 @@ export class SpaceBrowserApp {
     tabSession.setPermissionRequestHandler((_wc, permission, callback) => {
       callback(permission !== "notifications");
     });
+    tabSession.setPermissionCheckHandler((_wc, permission) => permission !== "notifications");
 
     if (settings.performanceProfile.throttleNetworkPreset !== "off") {
       // Scaffolding for devtools-network throttling; policy is reflected in UI/state.
@@ -366,6 +374,19 @@ export class SpaceBrowserApp {
       return new URL(url).hostname;
     } catch {
       return "";
+    }
+  }
+
+  private shouldStripCookies(url: string, initiator: string | undefined, cookiePolicy: ShieldConfig["cookies"]) {
+    if (cookiePolicy === "allow") return false;
+    if (cookiePolicy === "block-all") return true;
+    if (!initiator) return false;
+    try {
+      const requestHost = new URL(url).hostname;
+      const initiatorHost = new URL(initiator).hostname;
+      return requestHost !== initiatorHost;
+    } catch {
+      return false;
     }
   }
 
@@ -403,14 +424,6 @@ export class SpaceBrowserApp {
     if (action === "split" && typeof payload.tabId === "string") return this.splitTab(payload.tabId);
     if (action === "close-sidebar") return this.closeSidebar();
     if (action === "toggle-sidebar-pin") return this.toggleSidebarPin();
-    if (action === "tor-window") {
-      dialog.showMessageBox(this.mainWindow!, {
-        type: "info",
-        title: "Space_",
-        message: "Private Window with Tor is scaffolded in v1 and not available yet."
-      });
-      return;
-    }
   }
 
   private async navigate(tabId: string, value: string) {
@@ -566,6 +579,7 @@ export class SpaceBrowserApp {
       else this.mainWindow.maximize();
     }
     if (action === "close") this.mainWindow.close();
+    this.publishSnapshot();
   }
 
   private openSidebarApp(appId: string) {
@@ -592,10 +606,7 @@ export class SpaceBrowserApp {
     const appEntry = sidebarApps.find((entry) => entry.id === appId);
     if (!appEntry) return;
 
-    if (appEntry.url.startsWith("space://")) {
-      const html = this.renderInternalPanel(appEntry.id, appEntry.name);
-      void this.loadSidebarUrl(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-    } else {
+    if (!appEntry.url.startsWith("space://")) {
       void this.loadSidebarUrl(appEntry.url);
     }
     this.layoutViews();
@@ -718,6 +729,18 @@ export class SpaceBrowserApp {
     this.publishSnapshot();
   }
 
+  private activeSidebarUsesBrowserView() {
+    const appEntry = sidebarApps.find((entry) => entry.id === this.activeSidebarAppId);
+    return Boolean(appEntry && !appEntry.url.startsWith("space://"));
+  }
+
+  private clampSidebarWidth(width: number) {
+    const [windowWidth] = this.mainWindow?.getContentSize() ?? [1600, 980];
+    const available = windowWidth - railWidth - 320;
+    const maxWidth = Math.max(300, Math.min(560, available));
+    return Math.max(300, Math.min(maxWidth, width));
+  }
+
   private renderInternalPanel(appId: string, title: string) {
     const panelData: Record<string, { kicker: string; items: string[] }> = {
       settings: {
@@ -817,12 +840,13 @@ export class SpaceBrowserApp {
   private layoutViews() {
     if (!this.mainWindow) return;
     const [width, height] = this.mainWindow.getContentSize();
+    this.sidebarWidth = this.clampSidebarWidth(this.sidebarWidth);
     const dockedSidebarWidth = this.sidebarOpen && this.sidebarPinned ? this.sidebarWidth : 0;
     const panelWidth = this.sidebarOpen ? this.sidebarWidth : 0;
     const rightDockWidth = this.utilityDockOpen ? utilityDockWidth : 0;
     const contentX = railWidth + dockedSidebarWidth;
     const mainWidth = width - contentX;
-    const browserWidth = Math.max(700, mainWidth - rightDockWidth);
+    const browserWidth = Math.max(240, mainWidth - rightDockWidth);
     const splitTabs = [...this.tabs.values()].filter((tab) => tab.record.isSplitParticipant);
     const active = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
     const showBrowserSurface = !(active?.record.url.startsWith("space://start"));
@@ -857,7 +881,7 @@ export class SpaceBrowserApp {
     }
 
     if (this.sidebarView) {
-      if (this.sidebarOpen) {
+      if (this.sidebarOpen && this.activeSidebarUsesBrowserView()) {
         this.sidebarView.setBounds({ x: railWidth, y: sidebarHeaderHeight, width: panelWidth, height: height - sidebarHeaderHeight });
         this.sidebarView.setAutoResize({ height: true });
         this.mainWindow.setTopBrowserView(this.sidebarView);
@@ -968,6 +992,39 @@ export class SpaceBrowserApp {
     }
   }
 
+  private async loadUnpackedExtension() {
+    if (!this.mainWindow) return;
+    const result = await dialog.showOpenDialog(this.mainWindow, {
+      title: "Load unpacked extension",
+      properties: ["openDirectory"]
+    });
+    if (result.canceled || result.filePaths.length === 0) return;
+    try {
+      await session.defaultSession.loadExtension(result.filePaths[0], { allowFileAccess: true });
+      await dialog.showMessageBox(this.mainWindow, {
+        type: "info",
+        title: "Extension loaded",
+        message: "The unpacked extension was loaded for this Space_ session."
+      });
+    } catch (error) {
+      await dialog.showMessageBox(this.mainWindow, {
+        type: "error",
+        title: "Extension could not be loaded",
+        message: error instanceof Error ? error.message : "Space_ could not load this unpacked extension."
+      });
+    }
+  }
+
+  private async openChromeWebStore(tabId?: string) {
+    const url = "https://chromewebstore.google.com/";
+    const target = tabId ? this.tabs.get(tabId) : this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+    if (target) {
+      await this.navigate(target.record.id, url);
+      return;
+    }
+    await this.createTab({ url, private: false });
+  }
+
   private applyPerformancePolicy(tabId: string) {
     const profile = this.getSettings().performanceProfile;
     const now = Date.now();
@@ -1001,7 +1058,8 @@ export class SpaceBrowserApp {
       sidebarOpen: this.sidebarOpen,
       sidebarPinned: this.sidebarPinned,
       activeSidebarAppId: this.activeSidebarAppId,
-      utilityDockOpen: this.utilityDockOpen
+      utilityDockOpen: this.utilityDockOpen,
+      isMaximized: this.mainWindow?.isMaximized() ?? false
     };
   }
 

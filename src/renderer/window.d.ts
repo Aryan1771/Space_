@@ -23,6 +23,8 @@ declare global {
       toggleMod: (modId: string, enabled: boolean) => Promise<unknown>;
       runAiAction: (payload: AiActionPayload) => Promise<unknown>;
       requestPictureInPicture: (tabId?: string) => Promise<unknown>;
+      loadUnpackedExtension: () => Promise<unknown>;
+      openChromeWebStore: (tabId?: string) => Promise<unknown>;
       takeScreenshot: () => Promise<unknown>;
       runCleaner: (targets: string[]) => Promise<unknown>;
     };

@@ -46,6 +46,7 @@ export const defaultSettings: AppSettings = {
   autoPictureInPicture: true,
   pictureInPictureOpacity: 0.92,
   notes: [],
+  hiddenSpeedDialIds: [],
   speedDial: [
     { id: "google", title: "Google", url: "https://www.google.com" },
     { id: "youtube", title: "YouTube", url: "https://www.youtube.com" },

@@ -27,6 +27,8 @@ const api = {
   toggleMod: (modId: string, enabled: boolean) => ipcRenderer.invoke(IPC_CHANNELS.modsToggle, { modId, enabled }),
   runAiAction: (payload: AiActionPayload) => ipcRenderer.invoke(IPC_CHANNELS.aiRun, payload),
   requestPictureInPicture: (tabId?: string) => ipcRenderer.invoke(IPC_CHANNELS.pipRequest, { tabId }),
+  loadUnpackedExtension: () => ipcRenderer.invoke(IPC_CHANNELS.extensionLoadUnpacked),
+  openChromeWebStore: (tabId?: string) => ipcRenderer.invoke(IPC_CHANNELS.extensionOpenStore, { tabId }),
   takeScreenshot: () => ipcRenderer.invoke(IPC_CHANNELS.screenshot),
   runCleaner: (targets: string[]) => ipcRenderer.invoke(IPC_CHANNELS.cleaner, targets)
 };

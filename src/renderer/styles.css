@@ -159,6 +159,161 @@ body {
   height: 36px;
 }
 
+.sidebar-native-panel {
+  position: absolute;
+  top: 58px;
+  bottom: 0;
+  z-index: 5;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  background:
+    radial-gradient(circle at 80% 8%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 28%),
+    linear-gradient(180deg, rgba(14, 16, 26, 0.98), rgba(7, 8, 14, 0.98));
+  box-shadow: 18px 0 48px rgba(0, 0, 0, 0.32);
+}
+
+.sidebar-native-panel.overlay {
+  border-bottom-right-radius: 18px;
+}
+
+.native-panel-content {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+}
+
+.native-panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.native-panel-heading strong {
+  display: block;
+  font-size: 1.12rem;
+}
+
+.native-panel-heading span,
+.panel-note {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.native-section {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.native-section h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.native-list {
+  display: grid;
+  gap: 10px;
+}
+
+.native-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.native-row > button:first-child,
+.native-link-row {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.native-row strong,
+.native-row span,
+.native-link-row strong,
+.native-link-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-row span,
+.native-link-row span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.setting-line {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.setting-line input,
+.notes-editor {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 11px 12px;
+  outline: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.notes-editor {
+  min-height: 260px;
+  resize: vertical;
+  font: inherit;
+}
+
+[data-tip] {
+  position: relative;
+}
+
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 9px);
+  z-index: 40;
+  width: max-content;
+  max-width: 220px;
+  transform: translateX(-50%) translateY(4px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: rgba(10, 11, 18, 0.96);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 0.76rem;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+[data-tip]:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 .sidebar-group {
   display: grid;
   gap: 8px;
@@ -605,6 +760,23 @@ body {
   overflow: auto;
 }
 
+.workspace-body.web-active {
+  padding-top: 0;
+  overflow: hidden;
+}
+
+.workspace-body.web-active.utility-collapsed {
+  display: block;
+  padding: 0;
+}
+
+.workspace-body.web-active .start-surface,
+.workspace-body.web-active .right-dock-peek {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .workspace-body.with-utility {
   grid-template-columns: 1fr 340px;
 }
@@ -727,6 +899,8 @@ body {
 
 .gx-dial {
   position: relative;
+  display: grid;
+  place-items: center;
   min-height: 106px;
   border: 0;
   border-radius: 5px;
@@ -739,6 +913,13 @@ body {
   text-align: center;
   cursor: pointer;
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.22);
+  transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+}
+
+.gx-dial:hover {
+  transform: translateY(-5px) scale(1.025);
+  filter: saturate(1.12);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.32), 0 0 26px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .gx-dial::after {
@@ -760,6 +941,44 @@ body {
   font-size: 1.05rem;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.gx-dial.add-dial {
+  color: var(--text);
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+}
+
+.gx-dial.add-dial span {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.dial-edit-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  gap: 6px;
+  min-height: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.gx-dial:hover .dial-edit-actions {
+  opacity: 1;
+}
+
+.dial-edit-actions button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: rgba(10, 11, 18, 0.82);
+  color: #fff;
+  cursor: pointer;
 }
 
 .settings-preview-strip {

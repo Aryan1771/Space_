@@ -72,7 +72,8 @@ export interface AppSettings {
   autoPictureInPicture: boolean;
   pictureInPictureOpacity: number;
   notes: string[];
-  speedDial: Array<{ id: string; title: string; url: string }>;
+  speedDial: Array<{ id: string; title: string; url: string; color?: string }>;
+  hiddenSpeedDialIds: string[];
 }
 
 export interface TabRecord {
@@ -127,6 +128,7 @@ export interface BrowserStateSnapshot {
   sidebarPinned: boolean;
   activeSidebarAppId: string | null;
   utilityDockOpen: boolean;
+  isMaximized: boolean;
 }
 
 export interface AiActionPayload {
