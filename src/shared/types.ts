@@ -126,6 +126,7 @@ export interface BrowserStateSnapshot {
   settings: AppSettings;
   sidebarOpen: boolean;
   sidebarPinned: boolean;
+  sidebarWidth: number;
   activeSidebarAppId: string | null;
   utilityDockOpen: boolean;
   isMaximized: boolean;

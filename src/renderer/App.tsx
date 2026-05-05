@@ -106,6 +106,7 @@ const emptyState: BrowserStateSnapshot = {
   },
   sidebarOpen: false,
   sidebarPinned: false,
+  sidebarWidth: 380,
   activeSidebarAppId: null,
   utilityDockOpen: false,
   isMaximized: false
@@ -289,11 +290,13 @@ export function App() {
       setSnapshot(data);
       const active = data.tabs.find((tab: TabRecord) => tab.id === data.activeTabId);
       setAddress(active?.url ?? "https://www.google.com");
+      setSidebarWidth(data.sidebarWidth ?? 380);
     });
     return window.space.onSnapshot((data: BrowserStateSnapshot) => {
       setSnapshot(data);
       const active = data.tabs.find((tab: TabRecord) => tab.id === data.activeTabId);
       if (active) setAddress(active.url);
+      if (data.sidebarOpen) setSidebarWidth(data.sidebarWidth ?? 380);
     });
   }, []);
 
@@ -304,7 +307,7 @@ export function App() {
   useEffect(() => {
     if (!resizingSidebar) return;
     function handleMove(event: MouseEvent) {
-      const nextWidth = Math.max(320, Math.min(560, event.clientX - 64));
+      const nextWidth = Math.max(360, Math.min(Math.max(360, window.innerWidth - 324), event.clientX - 64));
       setSidebarWidth(nextWidth);
       void window.space.resizeSidebar(nextWidth, sidebarPinnedRef.current);
     }
@@ -321,6 +324,7 @@ export function App() {
 
   const activeTab = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId) ?? null;
   const activeTabIsStart = !activeTab || activeTab.url.startsWith("space://start");
+  const activeTabIsSettings = Boolean(activeTab?.url.startsWith("space://settings"));
   const speedDialEntries = useMemo(() => {
     const hidden = new Set(snapshot.settings.hiddenSpeedDialIds ?? []);
     const custom = snapshot.settings.speedDial.filter((entry) => !defaultSpeedDial.some((dial) => dial.id === entry.id || dial.url === entry.url));
@@ -404,6 +408,15 @@ export function App() {
 
   const showUtilityPanel = (panel: UtilityPanel) => activeUtilityPanel === "all" || activeUtilityPanel === panel;
 
+  async function openSidebarTarget(app: (typeof sidebarApps)[number]) {
+    if (app.id === "settings" && activeTab) {
+      await window.space.navigate(activeTab.id, "space://settings");
+      await window.space.tabAction("close-sidebar");
+      return;
+    }
+    await window.space.openSidebarApp(app.id);
+  }
+
   return (
     <div className={`app-shell ${themeClassMap[snapshot.settings.theme]}`}>
       <div className="backdrop-grid" />
@@ -431,7 +444,7 @@ export function App() {
                 title={app.name}
                 data-tip={app.name}
                 aria-label={app.name}
-                onClick={() => void window.space.openSidebarApp(app.id)}
+                onClick={() => void openSidebarTarget(app)}
               >
                     <span className="sidebar-app-icon">
                       <Icon size={21} strokeWidth={2.2} />
@@ -472,6 +485,16 @@ export function App() {
         </div>
       )}
 
+      {snapshot.sidebarOpen && (
+        <div
+          className="sidebar-full-resizer"
+          style={{ left: 64 + sidebarWidth - 10 }}
+          onMouseDown={() => setResizingSidebar(true)}
+          title="Drag to resize panel"
+          data-tip="Resize panel"
+        />
+      )}
+
       {snapshot.sidebarOpen && activeSidebarApp?.url.startsWith("space://") && (
         <aside className={`sidebar-native-panel ${snapshot.sidebarPinned ? "docked" : "overlay"}`} style={{ left: 64, width: sidebarWidth }}>
           {renderSidebarPanel({
@@ -489,7 +512,6 @@ export function App() {
         <header className="top-chrome">
           <div className="window-title-row">
             <div className="window-title">Space_ - {activeTab?.title ?? "New Tab"}</div>
-            <div className="window-controls-placeholder">GX Workspace Alpha</div>
           </div>
 
           <div className="tab-strip">
@@ -592,7 +614,7 @@ export function App() {
               <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("downloads")} title="Downloads" data-tip="Downloads">
                 <Download size={18} />
               </button>
-              <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("settings")} title="Settings" data-tip="Settings">
+              <button className="toolbar-utility" onClick={() => activeTab && void window.space.navigate(activeTab.id, "space://settings")} title="Settings" data-tip="Settings">
                 <CircleUserRound size={18} />
               </button>
               <button className={`toolbar-utility ${snapshot.utilityDockOpen ? "active" : ""}`} onClick={() => void toggleUtilityPanel("all")} title="Toggle right controls" data-tip="Controls">
@@ -606,8 +628,8 @@ export function App() {
           </div>
         </header>
 
-        <section className={`workspace-body ${activeTabIsStart ? "start-active" : "web-active"} ${snapshot.utilityDockOpen ? "with-utility" : "utility-collapsed"}`}>
-          <div className="start-surface">
+        <section className={`workspace-body ${activeTabIsStart || activeTabIsSettings ? "local-active" : "web-active"} ${snapshot.utilityDockOpen ? "with-utility" : "utility-collapsed"}`}>
+          {activeTabIsStart && <div className="start-surface">
             <section className="gx-home">
               <div className="gx-search-card">
                 <div className="search-provider-mark">G</div>
@@ -805,7 +827,16 @@ export function App() {
                 </div>
               </section>
             </div>
-          </div>
+          </div>}
+
+          {activeTabIsSettings && (
+            <SettingsPage
+              snapshot={snapshot}
+              activeTab={activeTab}
+              patchSettings={patchSettings}
+              patchPerformance={patchPerformance}
+            />
+          )}
 
           {snapshot.utilityDockOpen ? (
           <div className={`utility-dock panel-${activeUtilityPanel}`}>
@@ -1014,7 +1045,7 @@ export function App() {
               </div>
               <div className="settings-chip-grid">
                 {settingsSections.map((section) => (
-                  <button key={section} onClick={() => void window.space.openSidebarApp("settings")}>
+                  <button key={section} onClick={() => activeTab && void window.space.navigate(activeTab.id, `space://settings#${section.toLowerCase().replaceAll(" ", "-")}`)}>
                     {section}
                   </button>
                 ))}
@@ -1125,6 +1156,44 @@ type SidebarPanelProps = {
   navigateInActiveTab: (url: string) => Promise<unknown> | false | null;
 };
 
+function SettingsPage({
+  snapshot,
+  activeTab,
+  patchSettings,
+  patchPerformance
+}: Pick<SidebarPanelProps, "snapshot" | "activeTab" | "patchSettings" | "patchPerformance">) {
+  return (
+    <div className="local-page settings-page">
+      <div className="local-page-hero">
+        <div>
+          <span className="eyebrow">SPACE_ LOCAL PAGE</span>
+          <h1>Settings</h1>
+          <p>Appearance, Shields, sidebar, performance, extensions, downloads, startup, languages, site permissions, and advanced browser controls.</p>
+        </div>
+        <div className="settings-search-shell">
+          <Search size={18} />
+          <input placeholder="Search settings" />
+        </div>
+      </div>
+      <div className="settings-category-strip">
+        {settingsSections.map((section) => (
+          <a key={section} href={`#${section.toLowerCase().replaceAll(" ", "-")}`}>
+            {section}
+          </a>
+        ))}
+      </div>
+      {renderSidebarPanel({
+        appId: "settings",
+        snapshot,
+        activeTab,
+        patchSettings,
+        patchPerformance,
+        navigateInActiveTab: (url: string) => activeTab && window.space.navigate(activeTab.id, url)
+      })}
+    </div>
+  );
+}
+
 function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPerformance, navigateInActiveTab }: SidebarPanelProps) {
   if (appId === "settings") {
     return (
@@ -1137,7 +1206,7 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
           </div>
         </div>
 
-        <section className="native-section">
+        <section className="native-section" id="appearance">
           <h3>Appearance</h3>
           <div className="theme-grid native-theme-grid">
             {themeOptions.map((theme) => (
@@ -1153,7 +1222,7 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
           </div>
         </section>
 
-        <section className="native-section">
+        <section className="native-section" id="privacy">
           <h3>Shields</h3>
           <div className="toggle-grid">
             {renderShieldToggle("Ads", snapshot.settings.shieldDefaults.ads, (value) => window.space.setGlobalShields({ ads: value }))}
@@ -1166,7 +1235,7 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
           </div>
         </section>
 
-        <section className="native-section">
+        <section className="native-section" id="performance">
           <h3>Performance</h3>
           <div className="profile-buttons">
             {(["balanced", "limit", "aggressive"] as const).map((policy) => (
@@ -1192,7 +1261,7 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
           </label>
         </section>
 
-        <section className="native-section">
+        <section className="native-section" id="advanced">
           <h3>Extensions</h3>
           <div className="inline-actions">
             <button onClick={() => activeTab && void window.space.openChromeWebStore(activeTab.id)}>
@@ -1205,6 +1274,103 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
             </button>
           </div>
           <p className="panel-note">Chrome Web Store browsing opens in the active tab. Developer mode loads unpacked extensions for this Space_ session.</p>
+        </section>
+
+        <section className="native-section" id="sidebar">
+          <h3>Sidebar</h3>
+          <div className="settings-toggle-list">
+            {sidebarApps.map((app) => {
+              const enabled = snapshot.settings.sidebarApps.includes(app.id);
+              return (
+                <button
+                  key={app.id}
+                  className={enabled ? "active" : ""}
+                  onClick={() => {
+                    const nextApps = enabled
+                      ? snapshot.settings.sidebarApps.filter((id) => id !== app.id)
+                      : [...snapshot.settings.sidebarApps, app.id];
+                    void patchSettings({ sidebarApps: nextApps });
+                  }}
+                >
+                  <span>{app.name}</span>
+                  <strong>{enabled ? "Shown" : "Hidden"}</strong>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="native-section" id="mods">
+          <h3>Mods and Sounds</h3>
+          <div className="inline-actions">
+            <button onClick={() => void patchSettings({ soundsEnabled: !snapshot.settings.soundsEnabled })}>
+              <Volume2 size={17} />
+              Sounds {snapshot.settings.soundsEnabled ? "On" : "Off"}
+            </button>
+            <button onClick={() => void window.space.importMods()}>
+              <PackageOpen size={17} />
+              Import mod
+            </button>
+            <button onClick={() => void window.space.exportMods()}>
+              <Download size={17} />
+              Export mods
+            </button>
+          </div>
+        </section>
+
+        <section className="native-section" id="home-page">
+          <h3>Home Page</h3>
+          <div className="inline-actions">
+            <button onClick={() => activeTab && void window.space.navigate(activeTab.id, "space://start")}>
+              <Home size={17} />
+              Open start page
+            </button>
+            <button onClick={() => void patchSettings({ hiddenSpeedDialIds: [], speedDial: [] })}>
+              <RefreshCcw size={17} />
+              Reset Speed Dial
+            </button>
+          </div>
+        </section>
+
+        <section className="native-section" id="downloads">
+          <h3>Downloads and Data</h3>
+          <div className="inline-actions">
+            <button onClick={() => void window.space.runCleaner(["cache"])}>
+              <Trash2 size={17} />
+              Clear cache
+            </button>
+            <button onClick={() => void window.space.runCleaner(["cookies", "storage"])}>
+              <Cookie size={17} />
+              Clear cookies and site data
+            </button>
+            <button onClick={() => void window.space.clearHistory()}>
+              <History size={17} />
+              Clear history
+            </button>
+          </div>
+        </section>
+
+        <section className="native-section" id="tabs">
+          <h3>Tabs and Startup</h3>
+          <div className="inline-actions">
+            <button onClick={() => void window.space.tabAction("restore-closed")}>
+              <Clock3 size={17} />
+              Reopen closed tab
+            </button>
+            <button onClick={() => activeTab && void window.space.tabAction("split", { tabId: activeTab.id })}>
+              <SplitSquareHorizontal size={17} />
+              Split active tab
+            </button>
+            <button onClick={() => activeTab && void window.space.tabAction("pin", { tabId: activeTab.id })}>
+              <Pin size={17} />
+              Pin active tab
+            </button>
+          </div>
+        </section>
+
+        <section className="native-section" id="languages">
+          <h3>Languages, Accessibility, System</h3>
+          <p className="panel-note">Language, accessibility, default-browser registration, protocol handlers, and hardware acceleration toggles are listed here for parity with Chrome, Firefox, Brave, and Opera. These need native settings bindings before they can safely change Chromium process behavior.</p>
         </section>
 
         <section className="native-section">

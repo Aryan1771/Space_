@@ -47,6 +47,7 @@ const trackingParams = [
 const railWidth = 64;
 const chromeHeight = 86;
 const sidebarHeaderHeight = 58;
+const sidebarResizeGutter = 10;
 const utilityDockWidth = 358;
 const chromeLikeUserAgent =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
@@ -272,8 +273,8 @@ export class SpaceBrowserApp {
     void this.requestPictureInPictureForTab(previousActive, true);
     this.activeTabId = id;
 
-    if (this.isInternalStartUrl(input.url)) {
-      this.setTabToStartPage(browserTab, input.url);
+    if (this.isInternalSpaceUrl(input.url)) {
+      this.setTabToInternalPage(browserTab, input.url);
       this.layoutViews();
       this.publishSnapshot();
       this.updateWindowTitle();
@@ -440,12 +441,23 @@ export class SpaceBrowserApp {
     return value.trim().toLowerCase() === "space://start";
   }
 
-  private setTabToStartPage(tab: BrowserTab, url = "space://start") {
+  private isInternalSpaceUrl(value: string) {
+    return value.trim().toLowerCase().startsWith("space://");
+  }
+
+  private setTabToInternalPage(tab: BrowserTab, url = "space://start") {
     tab.record.url = url;
-    tab.record.title = tab.record.private ? "Private Start" : "Start Page";
+    tab.record.title = this.internalPageTitle(url, tab.record.private);
     tab.record.loading = false;
     tab.record.favicon = undefined;
     tab.record.shieldState = { ...this.getSettings().shieldDefaults };
+  }
+
+  private internalPageTitle(url: string, isPrivate: boolean) {
+    const value = url.trim().toLowerCase();
+    if (value.startsWith("space://settings")) return "Settings";
+    if (value.startsWith("space://extensions")) return "Extensions";
+    return isPrivate ? "Private Start" : "Start Page";
   }
 
   private async handleTabAction(action: string, payload: Record<string, unknown>) {
@@ -471,8 +483,8 @@ export class SpaceBrowserApp {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
     const url = this.normalizeUrl(value);
-    if (this.isInternalStartUrl(url)) {
-      this.setTabToStartPage(tab, url);
+    if (this.isInternalSpaceUrl(url)) {
+      this.setTabToInternalPage(tab, url);
       this.activeTabId = tabId;
       this.layoutViews();
       this.publishSnapshot();
@@ -686,6 +698,9 @@ export class SpaceBrowserApp {
 
     const appEntry = sidebarApps.find((entry) => entry.id === appId);
     if (!appEntry) return;
+    if (appEntry.type === "social" || appEntry.type === "ai") {
+      this.sidebarWidth = this.clampSidebarWidth(Math.max(this.sidebarWidth, 640));
+    }
 
     if (!appEntry.url.startsWith("space://")) {
       void this.loadSidebarUrl(appEntry.url);
@@ -817,105 +832,9 @@ export class SpaceBrowserApp {
 
   private clampSidebarWidth(width: number) {
     const [windowWidth] = this.mainWindow?.getContentSize() ?? [1600, 980];
-    const available = windowWidth - railWidth - 320;
-    const maxWidth = Math.max(300, Math.min(560, available));
-    return Math.max(300, Math.min(maxWidth, width));
-  }
-
-  private renderInternalPanel(appId: string, title: string) {
-    const panelData: Record<string, { kicker: string; items: string[] }> = {
-      settings: {
-        kicker: "Space_ control center",
-        items: [
-          "Appearance, themes, mods, sounds, sidebar layout",
-          "Home page widgets, tab behavior, Shields privacy",
-          "GX Control, AI providers, advanced browser labs"
-        ]
-      },
-      history: {
-        kicker: "Browsing timeline",
-        items: (appStore.get("history") ?? []).slice(0, 12).map((entry: HistoryRecord) => `${entry.title} - ${entry.url}`)
-      },
-      bookmarks: {
-        kicker: "Saved pages",
-        items: (appStore.get("bookmarks") ?? []).slice(0, 12).map((entry: BookmarkRecord) => `${entry.title} - ${entry.url}`)
-      },
-      downloads: {
-        kicker: "Download manager",
-        items: this.downloads.length
-          ? this.downloads.slice(0, 12).map((entry) => `${entry.fileName} - ${entry.status}`)
-          : ["Downloads will appear here as files are saved."]
-      },
-      notes: {
-        kicker: "Quick notes",
-        items: this.getSettings().notes.length ? this.getSettings().notes : ["Notes storage is ready for richer editing in v1."]
-      }
-    };
-    const data = panelData[appId] ?? {
-      kicker: "Space_ panel",
-      items: ["This sidebar surface is wired and ready for deeper workflows."]
-    };
-    const cards = data.items.length ? data.items : ["Nothing here yet."];
-    return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <style>
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        background:
-          radial-gradient(circle at 80% 10%, rgba(94, 208, 255, 0.16), transparent 28%),
-          linear-gradient(180deg, #10111a 0%, #090a11 100%);
-        color: #f6f7ff;
-        font: 14px "Segoe UI", system-ui, sans-serif;
-        padding: 24px;
-      }
-      h1 { margin: 6px 0 8px; color: #ffffff; font-size: 28px; }
-      .kicker { color: #5ed0ff; text-transform: uppercase; letter-spacing: .14em; font-size: 11px; font-weight: 800; }
-      .card {
-        border: 1px solid rgba(255,255,255,.12);
-        background: rgba(255,255,255,.055);
-        border-radius: 18px;
-        padding: 14px;
-        margin: 10px 0;
-        color: #cbd2ef;
-        line-height: 1.5;
-        overflow-wrap: anywhere;
-      }
-      .pill {
-        display: inline-flex;
-        border: 1px solid rgba(94,208,255,.28);
-        border-radius: 999px;
-        padding: 8px 12px;
-        margin-top: 10px;
-        color: #9fdcff;
-        background: rgba(94,208,255,.08);
-        font-weight: 700;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="kicker">${data.kicker}</div>
-    <h1>${title}</h1>
-    ${cards.map((item) => `<div class="card">${this.escapeHtml(item)}</div>`).join("")}
-    <div class="pill">Pinned, resizable sidebar panel</div>
-  </body>
-</html>`;
-  }
-
-  private escapeHtml(value: string) {
-    return value.replace(/[&<>"']/g, (char) => {
-      const map: Record<string, string> = {
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#039;"
-      };
-      return map[char];
-    });
+    const available = windowWidth - railWidth - 260;
+    const maxWidth = Math.max(360, Math.min(900, available));
+    return Math.max(360, Math.min(maxWidth, width));
   }
 
   private layoutViews() {
@@ -930,7 +849,7 @@ export class SpaceBrowserApp {
     const browserWidth = Math.max(240, mainWidth - rightDockWidth);
     const splitTabs = [...this.tabs.values()].filter((tab) => tab.record.isSplitParticipant);
     const active = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
-    const showBrowserSurface = !(active?.record.url.startsWith("space://start"));
+    const showBrowserSurface = !(active?.record.url.startsWith("space://"));
     const visibleViews: BrowserView[] = [];
 
     for (const tab of this.tabs.values()) {
@@ -963,7 +882,7 @@ export class SpaceBrowserApp {
 
     if (this.sidebarView) {
       if (this.sidebarOpen && this.activeSidebarUsesBrowserView()) {
-        this.sidebarView.setBounds({ x: railWidth, y: sidebarHeaderHeight, width: panelWidth, height: height - sidebarHeaderHeight });
+        this.sidebarView.setBounds({ x: railWidth, y: sidebarHeaderHeight, width: Math.max(320, panelWidth - sidebarResizeGutter), height: height - sidebarHeaderHeight });
         this.sidebarView.setAutoResize({ height: true });
         this.mainWindow.setTopBrowserView(this.sidebarView);
       } else {
@@ -1138,6 +1057,7 @@ export class SpaceBrowserApp {
       settings: this.getSettings(),
       sidebarOpen: this.sidebarOpen,
       sidebarPinned: this.sidebarPinned,
+      sidebarWidth: this.sidebarWidth,
       activeSidebarAppId: this.activeSidebarAppId,
       utilityDockOpen: this.utilityDockOpen,
       isMaximized: this.mainWindow?.isMaximized() ?? false

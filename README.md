@@ -37,9 +37,18 @@ Space_ does not fake server-backed or OS-kernel features. Tor, VPN, cross-device
 | Wayback/Speedreader/DevTools | Working/Partial | Wayback and DevTools are working; Speedreader is a basic reader CSS mode. |
 | Tor/VPN/Sync | Removed | Not included until real network and account infrastructure exists. |
 
+## Browser Settings Baseline
+
+The local `space://settings` page is modeled after common settings categories from major browsers:
+
+- Chrome-style sections: search engine, startup/homepage, site permissions, cookies and site data, extensions/themes, downloads, accessibility, system, and reset settings.
+- Firefox-style sections: General, Home, Search, Privacy & Security, Sync, AI controls, and experimental Labs-style settings.
+- Brave-style sections: global Shields, site-specific Shields, privacy/security, WebRTC/privacy services, extensions, and sync.
+- Opera/Opera GX-style sections: sidebar setup, messengers, Speed Dial, themes, wallpapers, sounds, advanced browser/start-page options, and performance controls.
+
 ## Run Space_
 
-For a normal Windows app launch, use the packaged executable after building:
+For a normal Windows app launch, use the packaged executable after building. This opens directly as a desktop app and does not use a command prompt:
 
 ```powershell
 release\win-unpacked\Space_.exe
