@@ -282,6 +282,68 @@ body {
   font: inherit;
 }
 
+.feature-audit {
+  display: grid;
+  gap: 12px;
+}
+
+.feature-audit-group {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.feature-audit-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.feature-audit-row b,
+.feature-audit-row small {
+  display: block;
+}
+
+.feature-audit-row small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.status-dot {
+  min-width: 62px;
+  border-radius: 999px;
+  padding: 4px 7px;
+  text-align: center;
+  font-size: 0.66rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.status-dot.working {
+  color: #bfffe4;
+  background: rgba(50, 218, 146, 0.18);
+}
+
+.status-dot.partial {
+  color: #fff0bd;
+  background: rgba(255, 212, 73, 0.16);
+}
+
+.status-dot.planned {
+  color: #c8d7ff;
+  background: rgba(63, 140, 255, 0.16);
+}
+
+.status-dot.removed {
+  color: #ffb9c4;
+  background: rgba(255, 91, 113, 0.14);
+}
+
 [data-tip] {
   position: relative;
 }
@@ -891,20 +953,22 @@ body {
 
 .speed-dial-wall {
   display: grid;
-  width: min(1160px, calc(100vw - 360px));
+  width: min(1180px, calc(100vw - 330px));
   margin: 0 auto;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+  gap: 16px 18px;
 }
 
 .gx-dial {
   position: relative;
   display: grid;
   place-items: center;
-  min-height: 106px;
+  align-content: center;
+  gap: 6px;
+  min-height: 88px;
   border: 0;
   border-radius: 5px;
-  padding: 18px;
+  padding: 12px 14px 10px;
   overflow: hidden;
   background:
     linear-gradient(145deg, color-mix(in srgb, var(--tile) 86%, #ffffff 14%), color-mix(in srgb, var(--tile) 78%, #000000 22%));
@@ -935,12 +999,48 @@ body {
 .gx-dial span {
   position: relative;
   z-index: 1;
-  display: grid;
-  min-height: 70px;
-  place-items: center;
-  font-size: 1.05rem;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.gx-dial strong {
+  position: relative;
+  z-index: 1;
+  max-width: 100%;
+  overflow: hidden;
+  color: #10131c;
+  font-size: 0.92rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gx-dial small {
+  position: relative;
+  z-index: 1;
+  max-width: 100%;
+  overflow: hidden;
+  color: rgba(12, 14, 22, 0.62);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dial-logo-wrap {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+.dial-favicon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
 }
 
 .gx-dial.add-dial {
@@ -951,21 +1051,27 @@ body {
 .gx-dial.add-dial span {
   display: inline-flex;
   gap: 8px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 900;
 }
 
 .dial-edit-actions {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 6px;
+  right: 6px;
   z-index: 3;
   display: flex;
   gap: 6px;
   min-height: 0;
-  opacity: 0;
+  opacity: 0.2;
   transition: opacity 120ms ease;
 }
 
-.gx-dial:hover .dial-edit-actions {
+.gx-dial:hover .dial-edit-actions,
+.gx-dial:focus-within .dial-edit-actions {
   opacity: 1;
 }
 
@@ -979,6 +1085,59 @@ body {
   background: rgba(10, 11, 18, 0.82);
   color: #fff;
   cursor: pointer;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(12px);
+}
+
+.speed-dial-editor {
+  display: grid;
+  width: min(440px, calc(100vw - 32px));
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 18px;
+  background: linear-gradient(180deg, rgba(21, 22, 34, 0.98), rgba(10, 11, 18, 0.98));
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.46);
+}
+
+.speed-dial-preview {
+  display: grid;
+  min-height: 96px;
+  place-items: center;
+  gap: 5px;
+  border-radius: 10px;
+  padding: 14px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--tile) 88%, #ffffff 12%), color-mix(in srgb, var(--tile) 74%, #000000 26%));
+  color: #10131c;
+}
+
+.speed-dial-preview img {
+  width: 28px;
+  height: 28px;
+}
+
+.speed-dial-preview span {
+  color: rgba(12, 14, 22, 0.62);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.editor-actions {
+  justify-content: flex-end;
+}
+
+.danger-action {
+  border-color: rgba(255, 91, 113, 0.28) !important;
+  color: var(--danger) !important;
 }
 
 .settings-preview-strip {

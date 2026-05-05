@@ -59,6 +59,8 @@ import {
   CloudSun,
   Copy,
   Edit3,
+  Image as ImageIcon,
+  Save,
   Square,
   X,
   Zap
@@ -187,6 +189,53 @@ const settingsSections = [
 ];
 
 type UtilityPanel = "all" | "shields" | "tabs" | "history" | "performance" | "ai" | "utilities" | "settings";
+type SpeedDialEntry = { id: string; title: string; url: string; color?: string };
+type SpeedDialDraft = SpeedDialEntry & { isNew?: boolean; sourceDefaultId?: string };
+type FeatureStatus = "working" | "partial" | "planned" | "removed";
+
+const featureAudit: Array<{ group: string; items: Array<{ name: string; status: FeatureStatus; note: string }> }> = [
+  {
+    group: "GX Gaming",
+    items: [
+      { name: "GX Control", status: "partial", note: "Tab sleep, timer throttling, network presets; OS hard CPU/RAM caps need native service work." },
+      { name: "GX Cleaner", status: "working", note: "Clears cache, cookies, and site storage." },
+      { name: "Hot Tabs Killer", status: "planned", note: "Tab kill exists through close; live CPU/RAM ranking is next." },
+      { name: "GX Corner", status: "partial", note: "Start page section is present; live gaming feeds are local placeholders." },
+      { name: "Twitch and Discord", status: "working", note: "Available as resizable sidebar web apps." }
+    ]
+  },
+  {
+    group: "Customization",
+    items: [
+      { name: "Themes and RGB", status: "working", note: "Six theme presets and shared accent/glow variables." },
+      { name: "GX Mods", status: "partial", note: "Local JSON import/export; remote marketplace is not connected." },
+      { name: "Speed Dial editing", status: "working", note: "Add, edit, delete, recolor, and favicon tiles." },
+      { name: "Sidebar customization", status: "partial", note: "Pinned/resizable panels and app list; reorder UI is next." },
+      { name: "Animated wallpapers", status: "planned", note: "Wallpaper hooks are in mod schema; video picker is next." }
+    ]
+  },
+  {
+    group: "Brave-Style Shields",
+    items: [
+      { name: "Ad and tracker blocking", status: "working", note: "EasyList blocker plus request interception." },
+      { name: "Cookie blocking", status: "working", note: "Third-party cookie stripping by default, without breaking first-party login." },
+      { name: "HTTPS upgrade", status: "working", note: "HTTP requests are upgraded when Shields allow it." },
+      { name: "Script blocking", status: "partial", note: "Per-site/global toggle is present; fine-grained script UI still needs expansion." },
+      { name: "Fingerprinting protection", status: "partial", note: "Best-effort hardening only; not Brave parity yet." },
+      { name: "Tor and VPN", status: "removed", note: "Removed from UI rather than faking network infrastructure." }
+    ]
+  },
+  {
+    group: "Browser",
+    items: [
+      { name: "Chromium websites", status: "working", note: "Real Electron Chromium BrowserViews render normal sites." },
+      { name: "Extensions", status: "partial", note: "Chrome Web Store opens and developer Load Unpacked is available." },
+      { name: "Picture in Picture", status: "working", note: "Manual and auto PiP hooks are present." },
+      { name: "Split tabs and tab islands", status: "partial", note: "Split and island metadata are present; full collapsible islands need a deeper tab strip pass." },
+      { name: "Private windows", status: "partial", note: "Private in-memory tabs exist; separate private BrowserWindow polish is next." }
+    ]
+  }
+];
 
 const defaultSpeedDial = [
   { id: "speedtest", title: "Speedtest", url: "https://www.speedtest.net", color: "#ffffff" },
@@ -220,6 +269,7 @@ export function App() {
   const [activeUtilityPanel, setActiveUtilityPanel] = useState<UtilityPanel>("all");
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const [speedDialDraft, setSpeedDialDraft] = useState<SpeedDialDraft | null>(null);
   const lastDragTarget = useRef<string | null>(null);
   const sidebarPinnedRef = useRef(false);
 
@@ -290,38 +340,36 @@ export function App() {
     await window.space.patchSettings(patch);
   }
 
-  async function addSpeedDial() {
-    const title = window.prompt("Speed Dial name");
-    if (!title?.trim()) return;
-    const url = window.prompt("Website address", "https://");
-    if (!url?.trim()) return;
-    await patchSettings({
-      speedDial: [
-        ...snapshot.settings.speedDial,
-        { id: `custom-${Date.now()}`, title: title.trim(), url: url.trim(), color: "#ffffff" }
-      ]
-    });
-  }
-
-  async function editSpeedDial(entry: { id: string; title: string; url: string; color?: string }) {
-    const title = window.prompt("Speed Dial name", entry.title);
-    if (!title?.trim()) return;
-    const url = window.prompt("Website address", entry.url);
-    if (!url?.trim()) return;
-    const isDefault = defaultSpeedDial.some((dial) => dial.id === entry.id);
-    if (isDefault) {
-      await patchSettings({
-        hiddenSpeedDialIds: [...new Set([...(snapshot.settings.hiddenSpeedDialIds ?? []), entry.id])],
-        speedDial: [
-          ...snapshot.settings.speedDial,
-          { id: `custom-${Date.now()}`, title: title.trim(), url: url.trim(), color: entry.color ?? "#ffffff" }
-        ]
-      });
+  function openSpeedDialEditor(entry?: SpeedDialEntry) {
+    if (!entry) {
+      setSpeedDialDraft({ id: `custom-${Date.now()}`, title: "", url: "https://", color: "#ffffff", isNew: true });
       return;
     }
+    const isDefault = defaultSpeedDial.some((dial) => dial.id === entry.id);
+    setSpeedDialDraft({ ...entry, sourceDefaultId: isDefault ? entry.id : undefined });
+  }
+
+  async function saveSpeedDial() {
+    if (!speedDialDraft?.title.trim() || !speedDialDraft.url.trim()) return;
+    const normalized = {
+      id: speedDialDraft.sourceDefaultId ? `custom-${Date.now()}` : speedDialDraft.id,
+      title: speedDialDraft.title.trim(),
+      url: speedDialDraft.url.trim(),
+      color: speedDialDraft.color || "#ffffff"
+    };
+    if (speedDialDraft.sourceDefaultId) {
+      await patchSettings({
+        hiddenSpeedDialIds: [...new Set([...(snapshot.settings.hiddenSpeedDialIds ?? []), speedDialDraft.sourceDefaultId])],
+        speedDial: [...snapshot.settings.speedDial, normalized]
+      });
+      setSpeedDialDraft(null);
+      return;
+    }
+    const exists = snapshot.settings.speedDial.some((item) => item.id === normalized.id);
     await patchSettings({
-      speedDial: snapshot.settings.speedDial.map((item) => (item.id === entry.id ? { ...item, title: title.trim(), url: url.trim() } : item))
+      speedDial: exists ? snapshot.settings.speedDial.map((item) => (item.id === normalized.id ? normalized : item)) : [...snapshot.settings.speedDial, normalized]
     });
+    setSpeedDialDraft(null);
   }
 
   async function deleteSpeedDial(entry: { id: string; url: string }) {
@@ -588,7 +636,11 @@ export function App() {
                     onClick={() => activeTab && void window.space.navigate(activeTab.id, entry.url)}
                     onKeyDown={(event) => event.key === "Enter" && activeTab && void window.space.navigate(activeTab.id, entry.url)}
                   >
-                    <span>{entry.title}</span>
+                    <span className="dial-logo-wrap">
+                      <img className="dial-favicon" src={faviconForUrl(entry.url)} alt="" loading="lazy" />
+                    </span>
+                    <strong>{entry.title}</strong>
+                    <small>{hostLabel(entry.url)}</small>
                     <span className="dial-edit-actions">
                       <button
                         type="button"
@@ -596,7 +648,7 @@ export function App() {
                         data-tip="Edit"
                         onClick={(event) => {
                           event.stopPropagation();
-                          void editSpeedDial(entry);
+                          openSpeedDialEditor(entry);
                         }}
                       >
                         <Edit3 size={14} />
@@ -616,7 +668,7 @@ export function App() {
                   </div>
                   );
                 })}
-                <button className="gx-dial add-dial" onClick={() => void addSpeedDial()} style={{ "--tile": "#202432" } as React.CSSProperties}>
+                <button className="gx-dial add-dial" onClick={() => openSpeedDialEditor()} style={{ "--tile": "#202432" } as React.CSSProperties}>
                   <span><Plus size={24} /> Add site</span>
                 </button>
               </div>
@@ -954,6 +1006,58 @@ export function App() {
           )}
         </section>
       </main>
+      {speedDialDraft && (
+        <div className="modal-backdrop" onMouseDown={() => setSpeedDialDraft(null)}>
+          <section className="speed-dial-editor" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="native-panel-heading">
+              <ImageIcon size={22} />
+              <div>
+                <strong>{speedDialDraft.isNew ? "Add Speed Dial" : "Edit Speed Dial"}</strong>
+                <span>Customize the tile that appears on the start page</span>
+              </div>
+            </div>
+            <label className="setting-line">
+              Name
+              <input value={speedDialDraft.title} onChange={(event) => setSpeedDialDraft({ ...speedDialDraft, title: event.target.value })} autoFocus />
+            </label>
+            <label className="setting-line">
+              Address
+              <input value={speedDialDraft.url} onChange={(event) => setSpeedDialDraft({ ...speedDialDraft, url: event.target.value })} />
+            </label>
+            <label className="setting-line">
+              Tile color
+              <input type="color" value={speedDialDraft.color ?? "#ffffff"} onChange={(event) => setSpeedDialDraft({ ...speedDialDraft, color: event.target.value })} />
+            </label>
+            <div className="speed-dial-preview" style={{ "--tile": speedDialDraft.color ?? "#ffffff" } as React.CSSProperties}>
+              <img src={faviconForUrl(speedDialDraft.url)} alt="" />
+              <strong>{speedDialDraft.title || "New site"}</strong>
+              <span>{hostLabel(speedDialDraft.url)}</span>
+            </div>
+            <div className="inline-actions editor-actions">
+              {!speedDialDraft.isNew && (
+                <button
+                  className="danger-action"
+                  onClick={() => {
+                    void deleteSpeedDial(speedDialDraft);
+                    setSpeedDialDraft(null);
+                  }}
+                >
+                  <Trash2 size={17} />
+                  Delete
+                </button>
+              )}
+              <button onClick={() => setSpeedDialDraft(null)}>
+                <X size={17} />
+                Cancel
+              </button>
+              <button className="primary-button" onClick={() => void saveSpeedDial()}>
+                <Save size={17} />
+                Save
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -970,6 +1074,23 @@ function panelTitle(panel: UtilityPanel) {
     settings: "Settings"
   };
   return titles[panel];
+}
+
+function faviconForUrl(url: string) {
+  try {
+    const target = new URL(url.startsWith("http") ? url : `https://${url}`);
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(target.hostname)}&sz=64`;
+  } catch {
+    return "";
+  }
+}
+
+function hostLabel(url: string) {
+  try {
+    return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
 type SidebarPanelProps = {
@@ -1061,6 +1182,26 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
             </button>
           </div>
           <p className="panel-note">Chrome Web Store browsing opens in the active tab. Developer mode loads unpacked extensions for this Space_ session.</p>
+        </section>
+
+        <section className="native-section">
+          <h3>GX + Brave Feature Coverage</h3>
+          <div className="feature-audit">
+            {featureAudit.map((group) => (
+              <div className="feature-audit-group" key={group.group}>
+                <strong>{group.group}</strong>
+                {group.items.map((item) => (
+                  <div className="feature-audit-row" key={item.name}>
+                    <span className={`status-dot ${item.status}`}>{item.status}</span>
+                    <div>
+                      <b>{item.name}</b>
+                      <small>{item.note}</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </section>
       </div>
     );
