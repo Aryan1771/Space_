@@ -74,6 +74,7 @@ export interface AppSettings {
   notes: string[];
   speedDial: Array<{ id: string; title: string; url: string; color?: string }>;
   hiddenSpeedDialIds: string[];
+  pinnedExtensions: string[];
 }
 
 export interface TabRecord {
@@ -115,6 +116,14 @@ export interface DownloadRecord {
   receivedBytes: number;
   totalBytes: number;
   savePath?: string;
+}
+
+export interface ExtensionRecord {
+  id: string;
+  name: string;
+  version?: string;
+  enabled?: boolean;
+  pinned: boolean;
 }
 
 export interface BrowserStateSnapshot {

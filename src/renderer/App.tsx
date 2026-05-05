@@ -64,11 +64,12 @@ import {
   MapPin,
   Save,
   Square,
+  PinOff,
   X,
   Zap
 } from "lucide-react";
 import { sidebarApps } from "@shared/defaults";
-import type { AppSettings, BrowserStateSnapshot, TabRecord, ThemeId } from "@shared/types";
+import type { AppSettings, BrowserStateSnapshot, ExtensionRecord, TabRecord, ThemeId } from "@shared/types";
 
 const emptyState: BrowserStateSnapshot = {
   tabs: [],
@@ -104,6 +105,7 @@ const emptyState: BrowserStateSnapshot = {
     pictureInPictureOpacity: 0.92,
     notes: [],
     hiddenSpeedDialIds: [],
+    pinnedExtensions: [],
     speedDial: []
   },
   sidebarOpen: false,
@@ -195,7 +197,8 @@ const settingsSections = [
 type UtilityPanel = "shields" | "tabs" | "history" | "performance" | "ai" | "utilities" | "settings";
 type SpeedDialEntry = { id: string; title: string; url: string; color?: string };
 type SpeedDialDraft = SpeedDialEntry & { isNew?: boolean; sourceDefaultId?: string };
-type WeatherState = { status: "idle" | "loading" | "ready" | "error"; temperature?: number; city?: string; label: string };
+type WeatherState = { status: "idle" | "loading" | "ready" | "error"; temperature?: number; city?: string; label: string; latitude?: number; longitude?: number };
+type TooltipState = { text: string; left: number; top: number } | null;
 type FeatureStatus = "working" | "partial" | "planned" | "removed";
 type LocalPageId = "start" | "settings" | "mods" | "history" | "downloads" | "bookmarks" | "extensions" | "notes";
 
@@ -309,6 +312,9 @@ export function App() {
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const [speedDialDraft, setSpeedDialDraft] = useState<SpeedDialDraft | null>(null);
   const [weather, setWeather] = useState<WeatherState>({ status: "idle", label: "Use location" });
+  const [tooltip, setTooltip] = useState<TooltipState>(null);
+  const [extensionsOpen, setExtensionsOpen] = useState(false);
+  const [extensions, setExtensions] = useState<ExtensionRecord[]>([]);
   const lastDragTarget = useRef<string | null>(null);
   const sidebarPinnedRef = useRef(false);
   const utilityDockRef = useRef<HTMLDivElement | null>(null);
@@ -322,6 +328,7 @@ export function App() {
       setAddress(active?.url ?? "https://www.google.com");
       setSidebarWidth(data.sidebarWidth ?? 380);
     });
+    window.space.listExtensions().then(setExtensions).catch(() => setExtensions([]));
     return window.space.onSnapshot((data: BrowserStateSnapshot) => {
       setSnapshot(data);
       const active = data.tabs.find((tab: TabRecord) => tab.id === data.activeTabId);
@@ -378,6 +385,9 @@ export function App() {
       if (snapshot.utilityDockOpen && !inUtility && !(target instanceof Element && target.closest(".right-dock-peek"))) {
         void window.space.setUtilityDockOpen(false);
       }
+      if (extensionsOpen && target instanceof Element && !target.closest(".extensions-popover") && !target.closest(".extensions-toolbar-button")) {
+        setExtensionsOpen(false);
+      }
       const inLeftOverlay = leftToolbarRef.current?.contains(target) || leftPanelRef.current?.contains(target);
       const inRail = target instanceof Element && target.closest(".space-sidebar");
       if (snapshot.sidebarOpen && !snapshot.sidebarPinned && !inLeftOverlay && !inRail) {
@@ -386,7 +396,32 @@ export function App() {
     }
     document.addEventListener("pointerdown", closeFloatingPanels, true);
     return () => document.removeEventListener("pointerdown", closeFloatingPanels, true);
-  }, [snapshot.sidebarOpen, snapshot.sidebarPinned, snapshot.utilityDockOpen]);
+  }, [extensionsOpen, snapshot.sidebarOpen, snapshot.sidebarPinned, snapshot.utilityDockOpen]);
+
+  useEffect(() => {
+    function showTooltip(event: PointerEvent) {
+      const element = event.target instanceof Element ? event.target.closest("[data-tip]") : null;
+      const text = element?.getAttribute("data-tip");
+      if (!element || !text) return;
+      const rect = element.getBoundingClientRect();
+      setTooltip({
+        text,
+        left: Math.max(12, Math.min(window.innerWidth - 12, rect.left + rect.width / 2)),
+        top: Math.max(12, rect.top - 10)
+      });
+    }
+    function hideTooltip() {
+      setTooltip(null);
+    }
+    document.addEventListener("pointerover", showTooltip);
+    document.addEventListener("pointerout", hideTooltip);
+    window.addEventListener("scroll", hideTooltip, true);
+    return () => {
+      document.removeEventListener("pointerover", showTooltip);
+      document.removeEventListener("pointerout", hideTooltip);
+      window.removeEventListener("scroll", hideTooltip, true);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -403,7 +438,9 @@ export function App() {
           status: "ready",
           temperature: typeof temp === "number" ? temp : undefined,
           city: gpsLabel,
-          label: typeof temp === "number" ? `${Math.round(temp)} C` : "Weather"
+          label: typeof temp === "number" ? `${Math.round(temp)} C` : "Weather",
+          latitude,
+          longitude
         });
       } catch {
         if (!cancelled) setWeather({ status: "error", label: "Weather unavailable" });
@@ -509,6 +546,30 @@ export function App() {
     await window.space.setUtilityDockOpen(shouldOpen);
   }
 
+  async function toggleExtensionsPopover() {
+    const nextOpen = !extensionsOpen;
+    setExtensionsOpen(nextOpen);
+    if (nextOpen) {
+      setExtensions(await window.space.listExtensions());
+    }
+  }
+
+  async function toggleExtensionPin(extensionId: string) {
+    const current = snapshot.settings.pinnedExtensions ?? [];
+    const next = current.includes(extensionId) ? current.filter((id) => id !== extensionId) : [...current, extensionId];
+    await patchSettings({ pinnedExtensions: next });
+    setExtensions((items) => items.map((item) => (item.id === extensionId ? { ...item, pinned: !item.pinned } : item)));
+  }
+
+  function openWeatherDetails() {
+    if (!activeTab) return;
+    const url =
+      weather.latitude && weather.longitude
+        ? `https://open-meteo.com/en/docs?latitude=${weather.latitude}&longitude=${weather.longitude}&current=temperature_2m`
+        : "https://open-meteo.com/en/docs";
+    void window.space.navigate(activeTab.id, url);
+  }
+
   const showUtilityPanel = (panel: UtilityPanel) => activeUtilityPanel === panel;
 
   async function openSidebarTarget(app: (typeof sidebarApps)[number]) {
@@ -578,7 +639,7 @@ export function App() {
           </div>
           <div className="sidebar-toolbar-actions">
             <button onClick={() => void window.space.tabAction("toggle-sidebar-pin")} title={snapshot.sidebarPinned ? "Unpin panel" : "Pin panel"} data-tip={snapshot.sidebarPinned ? "Unpin panel" : "Pin panel"}>
-              <Pin size={16} />
+              {snapshot.sidebarPinned ? <PinOff size={16} /> : <Pin size={16} />}
             </button>
             <button onClick={() => void window.space.tabAction("close-sidebar")} title="Close panel" data-tip="Close panel">
               <X size={16} />
@@ -645,7 +706,12 @@ export function App() {
                     void window.space.reorderTab(sourceId, tab.id);
                   }}
                   onDragEnd={(event) => {
-                    const leftWindow = event.clientX < 0 || event.clientY < 0 || event.clientX > window.innerWidth || event.clientY > window.innerHeight;
+                    const leftWindow =
+                      event.clientX < 0 ||
+                      event.clientY < 0 ||
+                      event.clientX > window.innerWidth ||
+                      event.clientY > window.innerHeight ||
+                      event.clientY > 112;
                     if (leftWindow) void window.space.tabAction("detach", { tabId: tab.id });
                     setDraggedTabId(null);
                     lastDragTarget.current = null;
@@ -720,6 +786,18 @@ export function App() {
               <button className="toolbar-utility" onClick={() => activeTab && void window.space.toggleBookmark?.(activeTab.id)} title="Bookmark this page" data-tip="Bookmark">
                 <Star size={18} />
               </button>
+              {(snapshot.settings.pinnedExtensions ?? []).slice(0, 4).map((id) => {
+                const extension = extensions.find((item) => item.id === id);
+                if (!extension) return null;
+                return (
+                  <button key={id} className="toolbar-utility pinned-extension-button" title={extension.name} data-tip={extension.name}>
+                    <Puzzle size={18} />
+                  </button>
+                );
+              })}
+              <button className="toolbar-utility extensions-toolbar-button" onClick={() => void toggleExtensionsPopover()} title="Extensions" data-tip="Extensions">
+                <Puzzle size={18} />
+              </button>
               <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("downloads")} title="Downloads" data-tip="Downloads">
                 <Download size={18} />
               </button>
@@ -737,6 +815,40 @@ export function App() {
             <button className="go-button" onClick={() => void navigate()}>
               Go
             </button>
+            {extensionsOpen && (
+              <section className="extensions-popover">
+                <div className="popover-header">
+                  <strong>Extensions</strong>
+                  <button onClick={() => setExtensionsOpen(false)} title="Close extensions" data-tip="Close">
+                    <X size={15} />
+                  </button>
+                </div>
+                <div className="popover-note">
+                  <strong>No access needed</strong>
+                  <span>Loaded extensions can be pinned beside the address bar.</span>
+                </div>
+                <div className="extension-list">
+                  {extensions.length === 0 && <div className="empty-note">No unpacked extensions loaded yet.</div>}
+                  {extensions.map((extension) => (
+                    <div className="extension-popover-row" key={extension.id}>
+                      <Puzzle size={17} />
+                      <span>{extension.name}</span>
+                      <button
+                        onClick={() => void toggleExtensionPin(extension.id)}
+                        title={extension.pinned ? "Unpin extension" : "Pin extension"}
+                        data-tip={extension.pinned ? "Unpin from toolbar" : "Pin to toolbar"}
+                      >
+                        {extension.pinned ? <PinOff size={17} /> : <Pin size={17} />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="popover-footer">
+                  <button onClick={() => activeTab && void window.space.navigate(activeTab.id, "space://extensions")}>Manage extensions</button>
+                  <button onClick={() => activeTab && void window.space.openChromeWebStore(activeTab.id)}>Chrome Web Store</button>
+                </div>
+              </section>
+            )}
           </div>
         </header>
 
@@ -761,7 +873,7 @@ export function App() {
                   <strong>Space_ Account</strong>
                   <span>Google sign-in</span>
                 </button>
-                <button className="weather-widget" title={weather.status === "error" ? weather.label : "Live weather from Open-Meteo"} data-tip="Live weather">
+                <button className="weather-widget" onClick={() => openWeatherDetails()} title={weather.status === "error" ? weather.label : "Live weather from Open-Meteo"} data-tip="Open live Open-Meteo weather details">
                   <CloudSun size={28} />
                   <strong>{weather.label}</strong>
                   <span><MapPin size={13} /> {weather.city ?? "GPS location"}</span>
@@ -897,8 +1009,8 @@ export function App() {
               </div>
               <div className="inline-actions">
                 <button onClick={() => activeTab && void window.space.tabAction("pin", { tabId: activeTab.id })}>
-                  <Pin size={17} />
-                  Pin
+                  {activeTab?.isPinned ? <PinOff size={17} /> : <Pin size={17} />}
+                  {activeTab?.isPinned ? "Unpin" : "Pin"}
                 </button>
                 <button onClick={() => activeTab && void window.space.tabAction("split", { tabId: activeTab.id })}>
                   <SplitSquareHorizontal size={17} />
@@ -1123,6 +1235,11 @@ export function App() {
               </button>
             </div>
           </section>
+        </div>
+      )}
+      {tooltip && (
+        <div className="floating-tooltip" style={{ left: tooltip.left, top: tooltip.top }}>
+          {tooltip.text}
         </div>
       )}
     </div>
@@ -1551,8 +1668,8 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
               Split active tab
             </button>
             <button onClick={() => activeTab && void window.space.tabAction("pin", { tabId: activeTab.id })}>
-              <Pin size={17} />
-              Pin active tab
+              {activeTab?.isPinned ? <PinOff size={17} /> : <Pin size={17} />}
+              {activeTab?.isPinned ? "Unpin active tab" : "Pin active tab"}
             </button>
           </div>
         </section>

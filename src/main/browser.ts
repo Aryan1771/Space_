@@ -12,6 +12,7 @@ import type {
   BookmarkRecord,
   BrowserStateSnapshot,
   DownloadRecord,
+  ExtensionRecord,
   HistoryRecord,
   ModManifest,
   ShieldConfig,
@@ -50,6 +51,11 @@ const sidebarHeaderHeight = 58;
 const sidebarResizeGutter = 10;
 const chromeLikeUserAgent =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
+const chromeClientHints = {
+  "Sec-CH-UA": '"Google Chrome";v="142", "Chromium";v="142", "Not_A Brand";v="99"',
+  "Sec-CH-UA-Mobile": "?0",
+  "Sec-CH-UA-Platform": '"Windows"'
+};
 
 export class SpaceBrowserApp {
   private mainWindow: BrowserWindow | null = null;
@@ -65,6 +71,7 @@ export class SpaceBrowserApp {
   private utilityDockOpen = false;
   private blocker: ElectronBlocker | null = null;
   private readonly rendererUrl = process.env.VITE_DEV_SERVER_URL;
+  private readonly configuredSessions = new WeakSet<Electron.Session>();
 
   async start() {
     await app.whenReady();
@@ -100,7 +107,7 @@ export class SpaceBrowserApp {
       frame: false,
       backgroundColor: "#09070d",
       autoHideMenuBar: true,
-      icon: path.join(app.getAppPath(), "assets", "app.ico"),
+      icon: this.appIconPath(),
       webPreferences: {
         preload: path.join(app.getAppPath(), "dist", "preload", "index.js"),
         contextIsolation: true,
@@ -205,6 +212,7 @@ export class SpaceBrowserApp {
     });
     ipcMain.handle(IPC_CHANNELS.aiRun, async (_event, payload: AiActionPayload) => this.runAiAction(payload));
     ipcMain.handle(IPC_CHANNELS.pipRequest, async (_event, { tabId }) => this.requestPictureInPicture(typeof tabId === "string" ? tabId : undefined));
+    ipcMain.handle(IPC_CHANNELS.extensionsList, async () => this.listExtensions());
     ipcMain.handle(IPC_CHANNELS.extensionLoadUnpacked, async () => this.loadUnpackedExtension());
     ipcMain.handle(IPC_CHANNELS.extensionOpenStore, async (_event, { tabId }) => this.openChromeWebStore(typeof tabId === "string" ? tabId : undefined));
     ipcMain.handle(IPC_CHANNELS.screenshot, async () => this.takeScreenshot());
@@ -223,6 +231,7 @@ export class SpaceBrowserApp {
       siteShieldRules: (stored as Partial<AppSettings>).siteShieldRules ?? defaultSettings.siteShieldRules,
       notes: (stored as Partial<AppSettings>).notes ?? defaultSettings.notes,
       hiddenSpeedDialIds: (stored as Partial<AppSettings>).hiddenSpeedDialIds ?? defaultSettings.hiddenSpeedDialIds,
+      pinnedExtensions: (stored as Partial<AppSettings>).pinnedExtensions ?? defaultSettings.pinnedExtensions,
       speedDial: (stored as Partial<AppSettings>).speedDial ?? defaultSettings.speedDial
     } as AppSettings;
   }
@@ -408,7 +417,7 @@ export class SpaceBrowserApp {
       }
       if (ctrl && input.shift && key === "n") {
         event.preventDefault();
-        void this.createTab({ url: "space://start", private: true });
+        this.openDetachedWindow("https://www.google.com", "Private Window", true);
         return;
       }
       if (input.alt && input.shift && key === "n") {
@@ -440,7 +449,10 @@ export class SpaceBrowserApp {
   }
 
   private configureSession(tabSession: Electron.Session, options: { sidebar?: boolean } = {}) {
+    if (this.configuredSessions.has(tabSession)) return;
+    this.configuredSessions.add(tabSession);
     const settings = this.getSettings();
+    this.registerBrowserSpoofPreload(tabSession);
     tabSession.webRequest.onBeforeRequest((details, callback) => {
       const merged = this.resolveShieldState(details.url);
       if (merged.httpsUpgrade && details.url.startsWith("http://")) {
@@ -462,6 +474,8 @@ export class SpaceBrowserApp {
     tabSession.webRequest.onBeforeSendHeaders((details, callback) => {
       const merged = this.resolveShieldState(details.url);
       details.requestHeaders["User-Agent"] = chromeLikeUserAgent;
+      Object.assign(details.requestHeaders, chromeClientHints);
+      delete details.requestHeaders["X-Client-Data"];
       const requestContext = details as Electron.OnBeforeSendHeadersListenerDetails & { initiator?: string; referrer?: string };
       if (this.shouldStripCookies(details.url, requestContext.initiator ?? requestContext.referrer, merged.cookies)) {
         delete details.requestHeaders.Cookie;
@@ -483,6 +497,18 @@ export class SpaceBrowserApp {
 
     if (settings.performanceProfile.throttleNetworkPreset !== "off") {
       // Scaffolding for devtools-network throttling; policy is reflected in UI/state.
+    }
+  }
+
+  private registerBrowserSpoofPreload(tabSession: Electron.Session) {
+    try {
+      tabSession.registerPreloadScript({
+        id: "space-browser-compat",
+        type: "frame",
+        filePath: path.join(app.getAppPath(), "assets", "browser-spoof-preload.js")
+      });
+    } catch {
+      // Already registered for this persistent session.
     }
   }
 
@@ -581,7 +607,7 @@ export class SpaceBrowserApp {
     if (action === "back" && typeof payload.tabId === "string") return this.goBack(payload.tabId);
     if (action === "forward" && typeof payload.tabId === "string") return this.goForward(payload.tabId);
     if (action === "reload" && typeof payload.tabId === "string") return this.reloadTab(payload.tabId);
-    if (action === "private-window") return this.createTab({ url: "space://start", private: true });
+    if (action === "private-window") return this.openDetachedWindow("https://www.google.com", "Private Window", true);
     if (action === "split" && typeof payload.tabId === "string") return this.splitTab(payload.tabId);
     if (action === "devtools" && typeof payload.tabId === "string") return this.openDevTools(payload.tabId);
     if (action === "wayback" && typeof payload.tabId === "string") return this.openWayback(payload.tabId);
@@ -742,20 +768,24 @@ export class SpaceBrowserApp {
     this.openDetachedWindow(url, title);
   }
 
-  private openDetachedWindow(url: string, title: string) {
+  private openDetachedWindow(url: string, title: string, isPrivate = false) {
+    const partition = isPrivate ? `space-private-window-${Date.now()}-${Math.random().toString(16).slice(2, 8)}` : "persist:space-default";
+    const detachedSession = session.fromPartition(partition, { cache: !isPrivate });
+    this.configureSession(detachedSession);
     const detachedWindow = new BrowserWindow({
       width: 1180,
       height: 780,
       minWidth: 900,
       minHeight: 620,
       frame: false,
-      title: `Space_ - ${title}`,
+      title: isPrivate ? "Space_ - Private Window" : `Space_ - ${title}`,
       backgroundColor: "#08070d",
-      icon: path.join(app.getAppPath(), "assets", "app.ico")
+      icon: this.appIconPath()
     });
     const detachedView = new BrowserView({
       webPreferences: {
         partition: "persist:space-default",
+        partition,
         sandbox: true
       }
     });
@@ -773,6 +803,10 @@ export class SpaceBrowserApp {
       return { action: "deny" };
     });
     void detachedView.webContents.loadURL(this.isInternalStartUrl(url) ? "https://www.google.com" : this.normalizeUrl(url));
+  }
+
+  private appIconPath() {
+    return path.join(app.getAppPath(), "assets", "app-256.ico");
   }
 
   private controlWindow(action: unknown) {
@@ -1169,6 +1203,18 @@ export class SpaceBrowserApp {
         message: error instanceof Error ? error.message : "Space_ could not load this unpacked extension."
       });
     }
+  }
+
+  private listExtensions(): ExtensionRecord[] {
+    const pinned = new Set(this.getSettings().pinnedExtensions ?? []);
+    const extensions = session.defaultSession.extensions.getAllExtensions();
+    return extensions.map((extension) => ({
+      id: extension.id,
+      name: extension.name,
+      version: extension.version,
+      enabled: true,
+      pinned: pinned.has(extension.id)
+    }));
   }
 
   private async openChromeWebStore(tabId?: string) {

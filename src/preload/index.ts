@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../shared/ipc";
-import type { AiActionPayload, BrowserStateSnapshot, SiteShieldRule } from "../shared/types";
+import type { AiActionPayload, BrowserStateSnapshot, ExtensionRecord, SiteShieldRule } from "../shared/types";
 
 const api = {
   getSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.browserSnapshot) as Promise<BrowserStateSnapshot>,
@@ -27,6 +27,7 @@ const api = {
   toggleMod: (modId: string, enabled: boolean) => ipcRenderer.invoke(IPC_CHANNELS.modsToggle, { modId, enabled }),
   runAiAction: (payload: AiActionPayload) => ipcRenderer.invoke(IPC_CHANNELS.aiRun, payload),
   requestPictureInPicture: (tabId?: string) => ipcRenderer.invoke(IPC_CHANNELS.pipRequest, { tabId }),
+  listExtensions: () => ipcRenderer.invoke(IPC_CHANNELS.extensionsList) as Promise<ExtensionRecord[]>,
   loadUnpackedExtension: () => ipcRenderer.invoke(IPC_CHANNELS.extensionLoadUnpacked),
   openChromeWebStore: (tabId?: string) => ipcRenderer.invoke(IPC_CHANNELS.extensionOpenStore, { tabId }),
   takeScreenshot: () => ipcRenderer.invoke(IPC_CHANNELS.screenshot),

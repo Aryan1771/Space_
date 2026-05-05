@@ -1,4 +1,4 @@
-import type { AiActionPayload, BrowserStateSnapshot, SiteShieldRule } from "@shared/types";
+import type { AiActionPayload, BrowserStateSnapshot, ExtensionRecord, SiteShieldRule } from "@shared/types";
 
 declare global {
   interface Window {
@@ -23,6 +23,7 @@ declare global {
       toggleMod: (modId: string, enabled: boolean) => Promise<unknown>;
       runAiAction: (payload: AiActionPayload) => Promise<unknown>;
       requestPictureInPicture: (tabId?: string) => Promise<unknown>;
+      listExtensions: () => Promise<ExtensionRecord[]>;
       loadUnpackedExtension: () => Promise<unknown>;
       openChromeWebStore: (tabId?: string) => Promise<unknown>;
       takeScreenshot: () => Promise<unknown>;

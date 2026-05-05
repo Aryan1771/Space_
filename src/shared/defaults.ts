@@ -50,6 +50,7 @@ export const defaultSettings: AppSettings = {
   pictureInPictureOpacity: 0.92,
   notes: [],
   hiddenSpeedDialIds: [],
+  pinnedExtensions: [],
   speedDial: [
     { id: "google", title: "Google", url: "https://www.google.com" },
     { id: "youtube", title: "YouTube", url: "https://www.youtube.com" },

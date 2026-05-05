@@ -20,6 +20,7 @@ export const IPC_CHANNELS = {
   modsToggle: "mods:toggle",
   aiRun: "ai:run",
   pipRequest: "tools:pip",
+  extensionsList: "extensions:list",
   extensionLoadUnpacked: "extensions:load-unpacked",
   extensionOpenStore: "extensions:open-store",
   screenshot: "tools:screenshot",
