@@ -56,6 +56,18 @@ const chromeClientHints = {
   "Sec-CH-UA-Mobile": "?0",
   "Sec-CH-UA-Platform": '"Windows"'
 };
+const authCookieHosts = [
+  "google.com",
+  "accounts.google.com",
+  "mail.google.com",
+  "gstatic.com",
+  "googleusercontent.com",
+  "microsoft.com",
+  "login.microsoftonline.com",
+  "live.com",
+  "outlook.live.com",
+  "office.com"
+];
 
 export class SpaceBrowserApp {
   private mainWindow: BrowserWindow | null = null;
@@ -538,10 +550,15 @@ export class SpaceBrowserApp {
     try {
       const requestHost = new URL(url).hostname;
       const initiatorHost = new URL(initiator).hostname;
+      if (this.isAuthCookieHost(requestHost) || this.isAuthCookieHost(initiatorHost)) return false;
       return requestHost !== initiatorHost;
     } catch {
       return false;
     }
+  }
+
+  private isAuthCookieHost(hostname: string) {
+    return authCookieHosts.some((host) => hostname === host || hostname.endsWith(`.${host}`));
   }
 
   private normalizeUrl(value: string) {
@@ -784,7 +801,6 @@ export class SpaceBrowserApp {
     });
     const detachedView = new BrowserView({
       webPreferences: {
-        partition: "persist:space-default",
         partition,
         sandbox: true
       }

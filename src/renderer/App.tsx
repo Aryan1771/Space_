@@ -342,6 +342,28 @@ export function App() {
   }, [snapshot.sidebarPinned]);
 
   useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      const ctrl = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (ctrl && event.shiftKey && key === "n") {
+        event.preventDefault();
+        void window.space.tabAction("private-window");
+      } else if (ctrl && key === "n") {
+        event.preventDefault();
+        void window.space.tabAction("new-window");
+      } else if (ctrl && key === "t") {
+        event.preventDefault();
+        void window.space.tabAction("new");
+      } else if (ctrl && key === "w" && snapshot.activeTabId) {
+        event.preventDefault();
+        void window.space.tabAction("close", { tabId: snapshot.activeTabId });
+      }
+    }
+    window.addEventListener("keydown", handleShortcut, true);
+    return () => window.removeEventListener("keydown", handleShortcut, true);
+  }, [snapshot.activeTabId]);
+
+  useEffect(() => {
     if (!resizingSidebar) return;
     function handleMove(event: MouseEvent) {
       const nextWidth = Math.max(360, Math.min(Math.max(360, window.innerWidth - 220), event.clientX - 64));
@@ -852,7 +874,19 @@ export function App() {
           </div>
         </header>
 
-        <section className={`workspace-body ${activeTabIsLocal ? "local-active" : "web-active"} ${snapshot.utilityDockOpen ? "with-utility" : "utility-collapsed"}`}>
+        <section
+          className={`workspace-body ${activeTabIsLocal ? "local-active" : "web-active"} ${snapshot.utilityDockOpen ? "with-utility" : "utility-collapsed"}`}
+          onDragOver={(event) => {
+            if (event.dataTransfer.types.includes("text/plain")) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            const tabId = event.dataTransfer.getData("text/plain");
+            if (tabId) {
+              event.preventDefault();
+              void window.space.tabAction("detach", { tabId });
+            }
+          }}
+        >
           {activeTabIsStart && <div className="start-surface">
             <section className="gx-home">
               <div className="gx-search-card">
