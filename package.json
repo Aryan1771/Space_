@@ -46,7 +46,7 @@
   "build": {
     "appId": "com.space.browser",
     "productName": "Space_",
-    "copyright": "Copyright (c) 2026 Aryan",
+    "copyright": "Copyright (c) 2026 SWD7",
     "directories": {
       "output": "release"
     },

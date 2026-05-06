@@ -16,7 +16,7 @@ Space_ is a Chromium-based desktop browser built with Electron, React, Tailwind,
 
 ## License / EULA
 
-Space_ is the property of SWD7. It is free and open-source software for personal, educational, and development use. You may inspect, modify, and share Space_ for free, but you may not sell it, charge money for redistribution, rent it, sublicense it for money, or misrepresent yourself as SWD7 or as the official owner of Space_.
+Space_ is the property of SWD7. It is free and open-source software for personal, educational, and development use. You may inspect, modify, and share Space_ for free, but you may not sell it, redistribute it for money, charge money for redistribution, rent it, sublicense it for money, or misrepresent yourself as SWD7 or as the official owner of Space_.
 
 The installer displays the full EULA from `installer/LICENSE.txt`.
 
