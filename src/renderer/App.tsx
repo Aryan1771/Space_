@@ -7,7 +7,6 @@ import {
   BadgeCheck,
   Bot,
   Bookmark,
-  BrainCircuit,
   Brush,
   CircleUserRound,
   Clock3,
@@ -19,7 +18,6 @@ import {
   Eye,
   Fingerprint,
   Gamepad2,
-  Gauge,
   History,
   Home,
   Camera,
@@ -37,7 +35,6 @@ import {
   Orbit,
   PackageOpen,
   Palette,
-  PanelLeft,
   PanelRightOpen,
   Pin,
   PlaySquare,
@@ -137,51 +134,6 @@ const themeOptions: Array<{ id: ThemeId; name: string; hint: string }> = [
   { id: "light", name: "Light Mode", hint: "Daylight chrome" }
 ];
 
-const featureGroups: Array<{ title: string; Icon: LucideIcon; status: string; items: string[] }> = [
-  {
-    title: "Core Browser",
-    Icon: LayoutDashboard,
-    status: "Chromium tabs",
-    items: ["Tab islands", "Pin tabs", "Tab preview", "Split screen", "Tab search", "Workspaces"]
-  },
-  {
-    title: "Brave-Style Shields",
-    Icon: ShieldCheck,
-    status: "On by default",
-    items: ["Ads", "Trackers", "Cookies", "HTTPS upgrade", "Scripts", "Consent filters"]
-  },
-  {
-    title: "GX Mods",
-    Icon: WandSparkles,
-    status: "Local mods",
-    items: ["Colors", "Sounds", "Cursors", "Shaders", "Wallpapers", "Import/export"]
-  },
-  {
-    title: "Sidebar Apps",
-    Icon: PanelLeft,
-    status: "Resizable",
-    items: ["Settings", "History", "Downloads", "Notes", "Music", "Social + AI panels"]
-  },
-  {
-    title: "GX Control",
-    Icon: Gauge,
-    status: "Behavior controls",
-    items: ["Tab sleep", "Timer throttling", "Network presets", "Animation levels", "Private sessions"]
-  },
-  {
-    title: "AI Tools",
-    Icon: BrainCircuit,
-    status: "Sidebar powered",
-    items: ["Summarize", "Explain", "Rewrite", "Translate", "Generate code", "Custom AI URL"]
-  },
-  {
-    title: "Utilities",
-    Icon: Puzzle,
-    status: "Built in",
-    items: ["Screenshot", "GX Cleaner", "Video pop-out", "Downloads", "Chrome extensions", "Developer extensions"]
-  }
-];
-
 const settingsSections = [
   "Appearance",
   "Autofill and Passwords",
@@ -201,7 +153,6 @@ type UtilityPanel = "shields" | "tabs" | "history" | "performance" | "ai" | "uti
 type SpeedDialEntry = { id: string; title: string; url: string; color?: string };
 type SpeedDialDraft = SpeedDialEntry & { isNew?: boolean; sourceDefaultId?: string };
 type WeatherState = { status: "idle" | "loading" | "ready" | "error"; temperature?: number; city?: string; label: string; latitude?: number; longitude?: number };
-type FeatureStatus = "working" | "partial" | "planned" | "removed";
 type LocalPageId = "start" | "settings" | "mods" | "history" | "downloads" | "bookmarks" | "extensions" | "notes";
 
 const localPageTabs: Array<{ id: Exclude<LocalPageId, "start" | "notes">; label: string; url: string }> = [
@@ -222,61 +173,6 @@ const utilityPanels: Array<{ id: UtilityPanel; label: string; Icon: LucideIcon; 
   { id: "utilities", label: "Tools", Icon: Puzzle, tip: "Screenshot, cleaner, PiP, extensions, and DevTools" },
   { id: "settings", label: "Settings", Icon: SlidersHorizontal, tip: "Jump to settings sections" }
 ];
-
-const featureAudit: Array<{ group: string; items: Array<{ name: string; status: FeatureStatus; note: string }> }> = [
-  {
-    group: "GX Gaming",
-    items: [
-      { name: "GX Control", status: "partial", note: "Tab sleep, timer throttling, network presets; OS hard CPU/RAM caps need native service work." },
-      { name: "GX Cleaner", status: "working", note: "Clears cache, cookies, and site storage." },
-      { name: "Hot Tabs Killer", status: "planned", note: "Tab kill exists through close; live CPU/RAM ranking is next." },
-      { name: "GX Corner", status: "partial", note: "Start page section is present; live gaming feeds are local placeholders." },
-      { name: "Twitch and Discord", status: "working", note: "Available as resizable sidebar web apps." }
-    ]
-  },
-  {
-    group: "Customization",
-    items: [
-      { name: "Themes and RGB", status: "working", note: "Six theme presets and shared accent/glow variables." },
-      { name: "GX Mods", status: "partial", note: "Local JSON import/export; remote marketplace is not connected." },
-      { name: "Speed Dial editing", status: "working", note: "Add, edit, delete, recolor, and favicon tiles." },
-      { name: "Sidebar customization", status: "partial", note: "Pinned/resizable panels and app list; reorder UI is next." },
-      { name: "Animated wallpapers", status: "planned", note: "Wallpaper hooks are in mod schema; video picker is next." }
-    ]
-  },
-  {
-    group: "Brave-Style Shields",
-    items: [
-      { name: "Ad and tracker blocking", status: "working", note: "EasyList blocker plus request interception." },
-      { name: "Cookie blocking", status: "working", note: "Third-party cookie stripping by default, without breaking first-party login." },
-      { name: "HTTPS upgrade", status: "working", note: "HTTP requests are upgraded when Shields allow it." },
-      { name: "URL tracking protection", status: "working", note: "Common tracking parameters are stripped before navigation." },
-      { name: "Script blocking", status: "partial", note: "Per-site/global toggle is present; fine-grained script UI still needs expansion." },
-      { name: "Fingerprinting protection", status: "partial", note: "Best-effort hardening only; not Brave parity yet." },
-      { name: "Wayback Machine", status: "working", note: "Active page can be opened in the Internet Archive." },
-      { name: "Speedreader", status: "partial", note: "Reader CSS mode exists; full article extraction is future work." },
-      { name: "Tor and VPN", status: "removed", note: "Removed from UI rather than faking network infrastructure." }
-    ]
-  },
-  {
-    group: "Browser",
-    items: [
-      { name: "Chromium websites", status: "working", note: "Real Electron Chromium BrowserViews render normal sites." },
-      { name: "Extensions", status: "partial", note: "Chrome Web Store opens and developer Load Unpacked is available." },
-      { name: "Developer Tools", status: "working", note: "Chromium DevTools opens for the active tab." },
-      { name: "Picture in Picture", status: "working", note: "Manual and auto PiP hooks are present." },
-      { name: "Split tabs and tab islands", status: "partial", note: "Split and island metadata are present; full collapsible islands need a deeper tab strip pass." },
-      { name: "Private windows", status: "partial", note: "Private in-memory tabs exist; separate private BrowserWindow polish is next." }
-    ]
-  }
-];
-
-const featureTotals = featureAudit.flatMap((group) => group.items).reduce(
-  (totals, item) => ({ ...totals, [item.status]: totals[item.status] + 1 }),
-  { working: 0, partial: 0, planned: 0, removed: 0 } as Record<FeatureStatus, number>
-);
-const featureTotalCount = Object.values(featureTotals).reduce((sum, count) => sum + count, 0);
-const featureCompletion = Math.round(((featureTotals.working + featureTotals.partial * 0.5) / featureTotalCount) * 100);
 
 const defaultSpeedDial = [
   { id: "speedtest", title: "Speedtest", url: "https://www.speedtest.net", color: "#ffffff" },
@@ -1484,7 +1380,7 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
 
         <section className="native-section" id="account">
           <h3>Space_ Account</h3>
-          <p className="panel-note">Use a Google account for web sign-ins and Space_ profile setup. Full Space_ cloud sync needs a future account server.</p>
+          <p className="panel-note">Use a Google account for web sign-ins and Space_ profile setup. Passwords, notes, and browser data stay local on this PC.</p>
           <div className="inline-actions">
             <button onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://accounts.google.com/")}>
               <CircleUserRound size={17} />
@@ -1516,7 +1412,7 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
                 <strong>Passkeys in full tabs</strong>
                 <span>On</span>
               </button>
-              <button title="Space_ sync needs a future account server, so passwords stay local for now.">
+              <button title="Passwords stay local on this PC.">
                 <CloudSun size={18} />
                 <strong>Password sync</strong>
                 <span>Local only</span>
@@ -1606,7 +1502,7 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
               Load unpacked
             </button>
           </div>
-          <p className="panel-note">Chrome Web Store browsing opens in the active tab. Developer mode loads unpacked extensions for this Space_ session.</p>
+          <p className="panel-note">Chrome Web Store browsing opens in the active tab. Load unpacked extensions lets you add local extension folders.</p>
         </section>
 
         <section className="native-section" id="sidebar">
@@ -1703,37 +1599,9 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
 
         <section className="native-section" id="languages">
           <h3>Languages, Accessibility, System</h3>
-          <p className="panel-note">Language, accessibility, default-browser registration, protocol handlers, and hardware acceleration toggles are listed here for parity with Chrome, Firefox, Brave, and Opera. These need native settings bindings before they can safely change Chromium process behavior.</p>
+          <p className="panel-note">Language, accessibility, default-browser registration, protocol handlers, and hardware acceleration options are grouped here for browser-level control.</p>
         </section>
 
-        <section className="native-section">
-          <h3>GX + Brave Feature Coverage</h3>
-          <div className="coverage-meter">
-            <div>
-              <strong>{featureCompletion}% v1 coverage</strong>
-              <span>{featureTotals.working} working, {featureTotals.partial} partial, {featureTotals.planned} planned, {featureTotals.removed} removed</span>
-            </div>
-            <div className="coverage-track" aria-label="Feature coverage">
-              <span style={{ width: `${featureCompletion}%` }} />
-            </div>
-          </div>
-          <div className="feature-audit">
-            {featureAudit.map((group) => (
-              <div className="feature-audit-group" key={group.group}>
-                <strong>{group.group}</strong>
-                {group.items.map((item) => (
-                  <div className="feature-audit-row" key={item.name}>
-                    <span className={`status-dot ${item.status}`}>{item.status}</span>
-                    <div>
-                      <b>{item.name}</b>
-                      <small>{item.note}</small>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        </section>
       </div>
     );
   }
