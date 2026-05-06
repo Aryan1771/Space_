@@ -1,4 +1,4 @@
-import type { AiActionPayload, BrowserStateSnapshot, ExtensionRecord, SiteShieldRule } from "@shared/types";
+import type { AiActionPayload, BrowserStateSnapshot, ExtensionRecord, NavigationHistoryEntry, SiteShieldRule } from "@shared/types";
 
 declare global {
   interface Window {
@@ -7,10 +7,12 @@ declare global {
       onSnapshot: (listener: (snapshot: BrowserStateSnapshot) => void) => () => void;
       tabAction: (action: string, payload?: Record<string, unknown>) => Promise<unknown>;
       reorderTab: (tabId: string, targetTabId: string) => Promise<unknown>;
+      getNavigationHistory: (tabId: string) => Promise<NavigationHistoryEntry[]>;
       navigate: (tabId: string, value: string) => Promise<unknown>;
       openSidebarApp: (appId: string) => Promise<unknown>;
       resizeSidebar: (width: number, pinned: boolean) => Promise<unknown>;
       setUtilityDockOpen: (open: boolean) => Promise<unknown>;
+      onFocusAddress: (listener: () => void) => () => void;
       windowControl: (action: "minimize" | "maximize" | "close") => Promise<unknown>;
       patchSettings: (patch: Record<string, unknown>) => Promise<unknown>;
       setGlobalShields: (patch: Record<string, unknown>) => Promise<unknown>;

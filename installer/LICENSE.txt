@@ -8,6 +8,7 @@ Space_ is the property of SWD7. Space_ is provided as free and open-source softw
 
 2. No Sale or Paid Redistribution
 Space_ must remain free. You may not sell Space_, redistribute Space_ for money, charge money for access to Space_, bundle Space_ into a paid product as a paid feature, rent it, sublicense it for money, or ask users to pay for redistributing, installing, downloading, or using Space_. You may not misrepresent yourself as SWD7 or as the official owner of Space_.
+In plain terms: Space_ is free, open-source software owned by SWD7 and cannot be redistributed/sold for money.
 
 3. Third-Party Technology
 Space_ is built with Electron, Chromium, React, Tailwind CSS, and other open-source libraries. Those components remain governed by their own licenses. Chromium powers the web rendering engine; Space_ is not Google Chrome and is not affiliated with Google. Design inspiration from Opera GX and Brave is used only as product direction; Space_ is not affiliated with Opera or Brave.

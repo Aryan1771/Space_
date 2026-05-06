@@ -128,6 +128,13 @@ export interface ExtensionRecord {
   pinned: boolean;
 }
 
+export interface NavigationHistoryEntry {
+  index: number;
+  title: string;
+  url: string;
+  active: boolean;
+}
+
 export interface BrowserStateSnapshot {
   tabs: TabRecord[];
   activeTabId: string | null;

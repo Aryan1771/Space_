@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../shared/ipc";
-import type { AiActionPayload, BrowserStateSnapshot, ExtensionRecord, SiteShieldRule } from "../shared/types";
+import type { AiActionPayload, BrowserStateSnapshot, ExtensionRecord, NavigationHistoryEntry, SiteShieldRule } from "../shared/types";
 
 const api = {
   getSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.browserSnapshot) as Promise<BrowserStateSnapshot>,
@@ -11,10 +11,16 @@ const api = {
   },
   tabAction: (action: string, payload?: Record<string, unknown>) => ipcRenderer.invoke(IPC_CHANNELS.tabAction, { action, payload }),
   reorderTab: (tabId: string, targetTabId: string) => ipcRenderer.invoke(IPC_CHANNELS.tabReorder, { tabId, targetTabId }),
+  getNavigationHistory: (tabId: string) => ipcRenderer.invoke(IPC_CHANNELS.navigationHistory, { tabId }) as Promise<NavigationHistoryEntry[]>,
   navigate: (tabId: string, value: string) => ipcRenderer.invoke(IPC_CHANNELS.navigate, { tabId, value }),
   openSidebarApp: (appId: string) => ipcRenderer.invoke(IPC_CHANNELS.sidebarOpen, { appId }),
   resizeSidebar: (width: number, pinned: boolean) => ipcRenderer.invoke(IPC_CHANNELS.sidebarResize, { width, pinned }),
   setUtilityDockOpen: (open: boolean) => ipcRenderer.invoke(IPC_CHANNELS.uiSetUtilityDock, { open }),
+  onFocusAddress: (listener: () => void) => {
+    const wrapped = () => listener();
+    ipcRenderer.on(IPC_CHANNELS.uiFocusAddress, wrapped);
+    return () => ipcRenderer.off(IPC_CHANNELS.uiFocusAddress, wrapped);
+  },
   windowControl: (action: "minimize" | "maximize" | "close") => ipcRenderer.invoke(IPC_CHANNELS.windowControl, { action }),
   patchSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke(IPC_CHANNELS.settingsPatch, patch),
   setGlobalShields: (patch: Record<string, unknown>) => ipcRenderer.invoke(IPC_CHANNELS.shieldSetGlobal, patch),

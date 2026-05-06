@@ -753,6 +753,22 @@ body {
   -webkit-app-region: no-drag;
 }
 
+.navigation-history-popover {
+  position: fixed;
+  z-index: 190;
+  width: min(326px, calc(100vw - 36px));
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background:
+    radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 32%),
+    linear-gradient(180deg, rgba(34, 35, 47, 0.98), rgba(18, 19, 27, 0.98));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.48);
+  -webkit-app-region: no-drag;
+}
+
 .extensions-popover::before {
   content: "";
   position: absolute;
@@ -768,6 +784,7 @@ body {
 
 .popover-header,
 .extension-popover-row,
+.navigation-history-row,
 .popover-footer {
   display: flex;
   align-items: center;
@@ -816,6 +833,44 @@ body {
 
 .extension-popover-row:hover {
   background: rgba(255, 255, 255, 0.055);
+}
+
+.navigation-history-row {
+  width: 100%;
+  gap: 10px;
+  min-height: 48px;
+  justify-content: flex-start;
+  border-radius: 10px;
+  padding: 7px 8px;
+  margin-top: 6px;
+  text-align: left;
+}
+
+.navigation-history-row:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.navigation-history-row span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.navigation-history-row strong,
+.navigation-history-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navigation-history-row small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.history-favicon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
 }
 
 .extension-popover-row span {

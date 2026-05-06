@@ -15,6 +15,7 @@ import type {
   ExtensionRecord,
   HistoryRecord,
   ModManifest,
+  NavigationHistoryEntry,
   ShieldConfig,
   SiteShieldRule,
   TabRecord
@@ -214,6 +215,7 @@ export class SpaceBrowserApp {
     ipcMain.handle(IPC_CHANNELS.tabReorder, async (_event, { tabId, targetTabId }) => {
       if (typeof tabId === "string" && typeof targetTabId === "string") this.reorderTab(tabId, targetTabId);
     });
+    ipcMain.handle(IPC_CHANNELS.navigationHistory, async (_event, { tabId }) => (typeof tabId === "string" ? this.getNavigationHistory(tabId) : []));
     ipcMain.handle(IPC_CHANNELS.navigate, async (_event, { tabId, value }) => this.navigate(tabId, value));
     ipcMain.handle(IPC_CHANNELS.sidebarOpen, async (_event, { appId }) => this.openSidebarApp(appId));
     ipcMain.handle(IPC_CHANNELS.sidebarResize, async (_event, { width, pinned }) => {
@@ -602,6 +604,21 @@ export class SpaceBrowserApp {
         this.openDetachedWindow("https://www.google.com", "Private Window", true);
         return;
       }
+      if (ctrl && (key === "+" || key === "=")) {
+        event.preventDefault();
+        if (this.activeTabId) this.adjustZoom(this.activeTabId, 0.5);
+        return;
+      }
+      if (ctrl && key === "-") {
+        event.preventDefault();
+        if (this.activeTabId) this.adjustZoom(this.activeTabId, -0.5);
+        return;
+      }
+      if (ctrl && key === "0") {
+        event.preventDefault();
+        if (this.activeTabId) this.setZoom(this.activeTabId, 0);
+        return;
+      }
       if (input.alt && input.shift && key === "n") {
         event.preventDefault();
         if (this.mainWindow) {
@@ -626,6 +643,76 @@ export class SpaceBrowserApp {
       if (ctrl && key === "n") {
         event.preventDefault();
         this.openDetachedWindow("space://start", "Start Page");
+        return;
+      }
+      if (ctrl && key === "d") {
+        event.preventDefault();
+        if (this.activeTabId) void this.toggleBookmark(this.activeTabId);
+        return;
+      }
+      if (ctrl && key === "h") {
+        event.preventDefault();
+        this.navigateToLocalPage("space://history");
+        return;
+      }
+      if (ctrl && key === "j") {
+        event.preventDefault();
+        this.navigateToLocalPage("space://downloads");
+        return;
+      }
+      if (ctrl && key === "b") {
+        event.preventDefault();
+        this.navigateToLocalPage("space://bookmarks");
+        return;
+      }
+      if (ctrl && key === "u") {
+        event.preventDefault();
+        if (this.activeTabId) void this.viewSource(this.activeTabId);
+        return;
+      }
+      if (ctrl && key === "p") {
+        event.preventDefault();
+        if (this.activeTabId) void this.printTab(this.activeTabId);
+        return;
+      }
+      if (ctrl && key === "s") {
+        event.preventDefault();
+        if (this.activeTabId) void this.savePage(this.activeTabId);
+        return;
+      }
+      if ((ctrl && key === "l") || (input.alt && key === "d")) {
+        event.preventDefault();
+        this.mainWindow?.webContents.send(IPC_CHANNELS.uiFocusAddress);
+        return;
+      }
+      if ((ctrl && key === "r") || key === "f5") {
+        event.preventDefault();
+        if (this.activeTabId) this.reloadTab(this.activeTabId);
+        return;
+      }
+      if (input.alt && key === "arrowleft") {
+        event.preventDefault();
+        if (this.activeTabId) this.goBack(this.activeTabId);
+        return;
+      }
+      if (input.alt && key === "arrowright") {
+        event.preventDefault();
+        if (this.activeTabId) this.goForward(this.activeTabId);
+        return;
+      }
+      if (ctrl && key === "tab") {
+        event.preventDefault();
+        this.activateAdjacentTab(input.shift ? -1 : 1);
+        return;
+      }
+      if (ctrl && /^[1-9]$/.test(key)) {
+        event.preventDefault();
+        this.activateTabByNumber(Number(key));
+        return;
+      }
+      if (key === "f11") {
+        event.preventDefault();
+        if (this.mainWindow) this.mainWindow.setFullScreen(!this.mainWindow.isFullScreen());
       }
     });
   }
@@ -734,6 +821,7 @@ export class SpaceBrowserApp {
   private normalizeUrl(value: string) {
     const trimmed = value.trim();
     if (trimmed.startsWith("space://")) return trimmed;
+    if (trimmed.startsWith("view-source:")) return trimmed;
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return this.stripTrackingParams(trimmed);
     if (trimmed.includes(".") && !trimmed.includes(" ")) return this.stripTrackingParams(`https://${trimmed}`);
     return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
@@ -791,9 +879,21 @@ export class SpaceBrowserApp {
     if (action === "activate" && typeof payload.tabId === "string") return this.activateTab(payload.tabId);
     if (action === "restore-closed") return this.restoreClosedTab();
     if (action === "pin" && typeof payload.tabId === "string") return this.togglePin(payload.tabId);
+    if (action === "next-tab") return this.activateAdjacentTab(1);
+    if (action === "previous-tab") return this.activateAdjacentTab(-1);
     if (action === "back" && typeof payload.tabId === "string") return this.goBack(payload.tabId);
     if (action === "forward" && typeof payload.tabId === "string") return this.goForward(payload.tabId);
+    if (action === "history-go" && typeof payload.tabId === "string" && typeof payload.index === "number") return this.goToHistoryIndex(payload.tabId, payload.index);
     if (action === "reload" && typeof payload.tabId === "string") return this.reloadTab(payload.tabId);
+    if (action === "zoom-in" && typeof payload.tabId === "string") return this.adjustZoom(payload.tabId, 0.5);
+    if (action === "zoom-out" && typeof payload.tabId === "string") return this.adjustZoom(payload.tabId, -0.5);
+    if (action === "zoom-reset" && typeof payload.tabId === "string") return this.setZoom(payload.tabId, 0);
+    if (action === "activate-number" && typeof payload.index === "number") return this.activateTabByNumber(payload.index);
+    if (action === "local-page" && typeof payload.url === "string") return this.navigateToLocalPage(payload.url);
+    if (action === "view-source" && typeof payload.tabId === "string") return this.viewSource(payload.tabId);
+    if (action === "print" && typeof payload.tabId === "string") return this.printTab(payload.tabId);
+    if (action === "save-page" && typeof payload.tabId === "string") return this.savePage(payload.tabId);
+    if (action === "fullscreen") return this.mainWindow?.setFullScreen(!this.mainWindow.isFullScreen());
     if (action === "private-window") return this.openDetachedWindow("https://www.google.com", "Private Window", true);
     if (action === "split" && typeof payload.tabId === "string") return this.splitTab(payload.tabId);
     if (action === "devtools" && typeof payload.tabId === "string") return this.openDevTools(payload.tabId);
@@ -839,11 +939,14 @@ export class SpaceBrowserApp {
   private closeTab(tabId: string) {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
+    const idsBeforeClose = [...this.tabs.keys()];
+    const closingIndex = idsBeforeClose.indexOf(tabId);
     this.closedTabs.unshift({ ...tab.record });
     this.mainWindow?.removeBrowserView(tab.view);
     tab.view.webContents.close();
     this.tabs.delete(tabId);
-    const next = [...this.tabs.keys()][0] ?? null;
+    const remaining = [...this.tabs.keys()];
+    const next = remaining[Math.min(Math.max(closingIndex, 0), remaining.length - 1)] ?? null;
     this.activeTabId = next;
     if (!next) {
       void this.createTab({ url: "space://start", private: false });
@@ -867,6 +970,52 @@ export class SpaceBrowserApp {
     this.publishSnapshot();
   }
 
+  private activateAdjacentTab(direction: 1 | -1) {
+    if (!this.activeTabId || this.tabs.size < 2) return;
+    const ids = [...this.tabs.keys()];
+    const currentIndex = ids.indexOf(this.activeTabId);
+    if (currentIndex < 0) return;
+    const nextIndex = (currentIndex + direction + ids.length) % ids.length;
+    this.activateTab(ids[nextIndex]);
+  }
+
+  private activateTabByNumber(index: number) {
+    const ids = [...this.tabs.keys()];
+    if (!ids.length) return;
+    const target = index === 9 ? ids[ids.length - 1] : ids[index - 1];
+    if (target) this.activateTab(target);
+  }
+
+  private navigateToLocalPage(url: string) {
+    if (!this.activeTabId) return;
+    void this.navigate(this.activeTabId, url);
+  }
+
+  private async viewSource(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (!tab || tab.record.url.startsWith("space://")) return;
+    await this.createTab({ url: `view-source:${tab.record.url}`, private: tab.record.private });
+  }
+
+  private async printTab(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    tab.view.webContents.print({ silent: false, printBackground: true });
+  }
+
+  private async savePage(tabId: string) {
+    const tab = this.tabs.get(tabId);
+    if (!tab || tab.record.url.startsWith("space://") || !this.mainWindow) return;
+    const safeTitle = (tab.record.title || "Space page").replace(/[<>:"/\\|?*\x00-\x1F]/g, "").slice(0, 80) || "Space page";
+    const result = await dialog.showSaveDialog(this.mainWindow, {
+      title: "Save page",
+      defaultPath: `${safeTitle}.html`,
+      filters: [{ name: "Web page", extensions: ["html"] }]
+    });
+    if (result.canceled || !result.filePath) return;
+    await tab.view.webContents.savePage(result.filePath, "HTMLComplete").catch(() => {});
+  }
+
   private goBack(tabId: string) {
     const tab = this.tabs.get(tabId);
     if (tab?.view.webContents.navigationHistory.canGoBack()) {
@@ -878,6 +1027,54 @@ export class SpaceBrowserApp {
     const tab = this.tabs.get(tabId);
     if (tab?.view.webContents.navigationHistory.canGoForward()) {
       tab.view.webContents.navigationHistory.goForward();
+    }
+  }
+
+  private getNavigationHistory(tabId: string): NavigationHistoryEntry[] {
+    const tab = this.tabs.get(tabId);
+    if (!tab || this.isInternalSpaceUrl(tab.record.url)) return [];
+    const history = tab.view.webContents.navigationHistory;
+    const activeIndex = history.getActiveIndex();
+    return history
+      .getAllEntries()
+      .map((entry, index) => ({
+        index,
+        title: entry.title || this.titleFromUrl(entry.url),
+        url: entry.url,
+        active: index === activeIndex
+      }))
+      .filter((entry) => entry.url && !entry.url.startsWith("about:blank"));
+  }
+
+  private goToHistoryIndex(tabId: string, index: number) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    const history = tab.view.webContents.navigationHistory;
+    if (index >= 0 && index < history.length()) {
+      history.goToIndex(index);
+    }
+  }
+
+  private adjustZoom(tabId: string, delta: number) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    const current = tab.view.webContents.getZoomLevel();
+    this.setZoom(tabId, current + delta);
+  }
+
+  private setZoom(tabId: string, level: number) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    const next = Math.max(-5, Math.min(5, level));
+    tab.view.webContents.setZoomLevel(next);
+  }
+
+  private titleFromUrl(value: string) {
+    try {
+      const url = new URL(value);
+      return url.hostname.replace(/^www\./, "") || value;
+    } catch {
+      return value;
     }
   }
 
@@ -1251,7 +1448,7 @@ export class SpaceBrowserApp {
       tab.view.webContents.setAudioMuted(tab.record.isMuted);
       tab.view.setAutoResize({ width: true, height: true });
       tab.view.webContents.setBackgroundThrottling(this.getSettings().performanceProfile.backgroundTabPolicy === "balanced");
-      tab.view.webContents.setVisualZoomLevelLimits(1, 3).catch(() => {});
+      tab.view.webContents.setVisualZoomLevelLimits(0.25, 5).catch(() => {});
       if (!shouldShow) {
         tab.view.setBounds({ x: -20000, y: -20000, width: 10, height: 10 });
       } else {

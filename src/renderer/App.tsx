@@ -67,7 +67,7 @@ import {
   Zap
 } from "lucide-react";
 import { sidebarApps } from "@shared/defaults";
-import type { AppSettings, BrowserStateSnapshot, ExtensionRecord, TabRecord, ThemeId } from "@shared/types";
+import type { AppSettings, BrowserStateSnapshot, ExtensionRecord, NavigationHistoryEntry, TabRecord, ThemeId } from "@shared/types";
 
 const emptyState: BrowserStateSnapshot = {
   tabs: [],
@@ -212,6 +212,10 @@ export function App() {
   const [weather, setWeather] = useState<WeatherState>({ status: "idle", label: "Use location" });
   const [extensionsOpen, setExtensionsOpen] = useState(false);
   const [extensions, setExtensions] = useState<ExtensionRecord[]>([]);
+  const [navigationMenu, setNavigationMenu] = useState<{ direction: "back" | "forward"; entries: NavigationHistoryEntry[]; x: number; y: number } | null>(null);
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const historyPressTimer = useRef<number | null>(null);
+  const historyMenuOpenedByPress = useRef(false);
   const lastDragTarget = useRef<string | null>(null);
   const sidebarPinnedRef = useRef(false);
   const utilityDockRef = useRef<HTMLDivElement | null>(null);
@@ -245,6 +249,9 @@ export function App() {
       if (ctrl && event.shiftKey && key === "n") {
         event.preventDefault();
         void window.space.tabAction("private-window");
+      } else if (ctrl && event.shiftKey && key === "t") {
+        event.preventDefault();
+        void window.space.tabAction("restore-closed");
       } else if (ctrl && key === "n") {
         event.preventDefault();
         void window.space.tabAction("new-window");
@@ -254,10 +261,79 @@ export function App() {
       } else if (ctrl && key === "w" && snapshot.activeTabId) {
         event.preventDefault();
         void window.space.tabAction("close", { tabId: snapshot.activeTabId });
+      } else if (ctrl && key === "d" && snapshot.activeTabId) {
+        event.preventDefault();
+        void window.space.toggleBookmark(snapshot.activeTabId);
+      } else if (ctrl && key === "h") {
+        event.preventDefault();
+        void window.space.tabAction("local-page", { url: "space://history" });
+      } else if (ctrl && key === "j") {
+        event.preventDefault();
+        void window.space.tabAction("local-page", { url: "space://downloads" });
+      } else if (ctrl && key === "b") {
+        event.preventDefault();
+        void window.space.tabAction("local-page", { url: "space://bookmarks" });
+      } else if (ctrl && key === "u" && snapshot.activeTabId) {
+        event.preventDefault();
+        void window.space.tabAction("view-source", { tabId: snapshot.activeTabId });
+      } else if (ctrl && key === "p" && snapshot.activeTabId) {
+        event.preventDefault();
+        void window.space.tabAction("print", { tabId: snapshot.activeTabId });
+      } else if (ctrl && key === "s" && snapshot.activeTabId) {
+        event.preventDefault();
+        void window.space.tabAction("save-page", { tabId: snapshot.activeTabId });
+      } else if ((ctrl && key === "l") || (event.altKey && key === "d")) {
+        event.preventDefault();
+        addressInputRef.current?.focus();
+        addressInputRef.current?.select();
+      } else if ((ctrl && key === "r") || key === "f5") {
+        event.preventDefault();
+        if (snapshot.activeTabId) void window.space.tabAction("reload", { tabId: snapshot.activeTabId });
+      } else if (event.altKey && key === "arrowleft") {
+        event.preventDefault();
+        if (snapshot.activeTabId) void window.space.tabAction("back", { tabId: snapshot.activeTabId });
+      } else if (event.altKey && key === "arrowright") {
+        event.preventDefault();
+        if (snapshot.activeTabId) void window.space.tabAction("forward", { tabId: snapshot.activeTabId });
+      } else if (ctrl && key === "tab") {
+        event.preventDefault();
+        void window.space.tabAction(event.shiftKey ? "previous-tab" : "next-tab");
+      } else if (ctrl && /^[1-9]$/.test(key)) {
+        event.preventDefault();
+        void window.space.tabAction("activate-number", { index: Number(key) });
+      } else if (ctrl && (key === "+" || key === "=")) {
+        event.preventDefault();
+        if (snapshot.activeTabId) void window.space.tabAction("zoom-in", { tabId: snapshot.activeTabId });
+      } else if (ctrl && key === "-") {
+        event.preventDefault();
+        if (snapshot.activeTabId) void window.space.tabAction("zoom-out", { tabId: snapshot.activeTabId });
+      } else if (ctrl && key === "0") {
+        event.preventDefault();
+        if (snapshot.activeTabId) void window.space.tabAction("zoom-reset", { tabId: snapshot.activeTabId });
+      } else if (key === "f11") {
+        event.preventDefault();
+        void window.space.tabAction("fullscreen");
       }
     }
     window.addEventListener("keydown", handleShortcut, true);
     return () => window.removeEventListener("keydown", handleShortcut, true);
+  }, [snapshot.activeTabId]);
+
+  useEffect(() => {
+    return window.space.onFocusAddress(() => {
+      addressInputRef.current?.focus();
+      addressInputRef.current?.select();
+    });
+  }, []);
+
+  useEffect(() => {
+    function handleWheel(event: WheelEvent) {
+      if (!(event.ctrlKey || event.metaKey) || !snapshot.activeTabId) return;
+      event.preventDefault();
+      void window.space.tabAction(event.deltaY < 0 ? "zoom-in" : "zoom-out", { tabId: snapshot.activeTabId });
+    }
+    window.addEventListener("wheel", handleWheel, { passive: false });
+    return () => window.removeEventListener("wheel", handleWheel);
   }, [snapshot.activeTabId]);
 
   useEffect(() => {
@@ -307,6 +383,9 @@ export function App() {
       if (extensionsOpen && target instanceof Element && !target.closest(".extensions-popover") && !target.closest(".extensions-toolbar-button")) {
         setExtensionsOpen(false);
       }
+      if (navigationMenu && target instanceof Element && !target.closest(".navigation-history-popover") && !target.closest(".circle-button")) {
+        setNavigationMenu(null);
+      }
       const inLeftOverlay = leftToolbarRef.current?.contains(target) || leftPanelRef.current?.contains(target);
       const inRail = target instanceof Element && target.closest(".space-sidebar");
       if (snapshot.sidebarOpen && !snapshot.sidebarPinned && !inLeftOverlay && !inRail) {
@@ -315,7 +394,7 @@ export function App() {
     }
     document.addEventListener("pointerdown", closeFloatingPanels, true);
     return () => document.removeEventListener("pointerdown", closeFloatingPanels, true);
-  }, [extensionsOpen, snapshot.sidebarOpen, snapshot.sidebarPinned, snapshot.utilityDockOpen]);
+  }, [extensionsOpen, navigationMenu, snapshot.sidebarOpen, snapshot.sidebarPinned, snapshot.utilityDockOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -445,6 +524,36 @@ export function App() {
     setExtensionsOpen(nextOpen);
     if (nextOpen) {
       setExtensions(await window.space.listExtensions());
+    }
+  }
+
+  async function showNavigationHistory(direction: "back" | "forward", anchor: HTMLElement) {
+    if (!activeTab) return;
+    const entries = await window.space.getNavigationHistory(activeTab.id);
+    const activeIndex = entries.findIndex((entry) => entry.active);
+    const filtered =
+      direction === "back"
+        ? entries.slice(0, Math.max(0, activeIndex)).reverse().slice(0, 8)
+        : entries.slice(activeIndex + 1).slice(0, 8);
+    if (!filtered.length) return;
+    const rect = anchor.getBoundingClientRect();
+    setNavigationMenu({ direction, entries: filtered, x: rect.left, y: rect.bottom + 8 });
+  }
+
+  function handleNavigationPress(direction: "back" | "forward", event: React.MouseEvent<HTMLButtonElement>) {
+    const button = event.currentTarget;
+    if (historyPressTimer.current) window.clearTimeout(historyPressTimer.current);
+    historyMenuOpenedByPress.current = false;
+    historyPressTimer.current = window.setTimeout(() => {
+      historyMenuOpenedByPress.current = true;
+      void showNavigationHistory(direction, button);
+    }, 420);
+  }
+
+  function clearNavigationPress() {
+    if (historyPressTimer.current) {
+      window.clearTimeout(historyPressTimer.current);
+      historyPressTimer.current = null;
     }
   }
 
@@ -644,10 +753,46 @@ export function App() {
 
           <div className="toolbar">
             <div className="toolbar-actions">
-              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("back", { tabId: activeTab.id })} title="Back">
+              <button
+                className="circle-button"
+                onMouseDown={(event) => handleNavigationPress("back", event)}
+                onMouseUp={clearNavigationPress}
+                onMouseLeave={clearNavigationPress}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  void showNavigationHistory("back", event.currentTarget);
+                }}
+                onClick={() => {
+                  clearNavigationPress();
+                  if (historyMenuOpenedByPress.current) {
+                    historyMenuOpenedByPress.current = false;
+                    return;
+                  }
+                  activeTab && void window.space.tabAction("back", { tabId: activeTab.id });
+                }}
+                title="Back. Hold or right-click to show tab history."
+              >
                 <ArrowLeft size={18} />
               </button>
-              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("forward", { tabId: activeTab.id })} title="Forward">
+              <button
+                className="circle-button"
+                onMouseDown={(event) => handleNavigationPress("forward", event)}
+                onMouseUp={clearNavigationPress}
+                onMouseLeave={clearNavigationPress}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  void showNavigationHistory("forward", event.currentTarget);
+                }}
+                onClick={() => {
+                  clearNavigationPress();
+                  if (historyMenuOpenedByPress.current) {
+                    historyMenuOpenedByPress.current = false;
+                    return;
+                  }
+                  activeTab && void window.space.tabAction("forward", { tabId: activeTab.id });
+                }}
+                title="Forward. Hold or right-click to show tab history."
+              >
                 <ArrowRight size={18} />
               </button>
               <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("reload", { tabId: activeTab.id })} title="Reload">
@@ -665,7 +810,13 @@ export function App() {
                 Shields
                 </span>
               </button>
-              <input value={address} onChange={(event) => setAddress(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void navigate()} />
+              <input
+                ref={addressInputRef}
+                value={address}
+                onChange={(event) => setAddress(event.target.value)}
+                onKeyDown={(event) => event.key === "Enter" && void navigate()}
+                title="Search or enter web address. Ctrl+L or Alt+D focuses this field."
+              />
               <button
                 className={`toolbar-utility ${snapshot.settings.autoPictureInPicture ? "active" : ""}`}
                 onClick={() => activeTab && void window.space.requestPictureInPicture(activeTab.id)}
@@ -736,6 +887,37 @@ export function App() {
                   <button onClick={() => activeTab && void window.space.navigate(activeTab.id, "space://extensions")}>Manage extensions</button>
                   <button onClick={() => activeTab && void window.space.openChromeWebStore(activeTab.id)}>Chrome Web Store</button>
                 </div>
+              </section>
+            )}
+            {navigationMenu && (
+              <section
+                className="navigation-history-popover"
+                style={{ left: navigationMenu.x, top: navigationMenu.y }}
+                onMouseLeave={() => setNavigationMenu(null)}
+              >
+                <div className="popover-header">
+                  <strong>{navigationMenu.direction === "back" ? "Back history" : "Forward history"}</strong>
+                  <button onClick={() => setNavigationMenu(null)} title="Close">
+                    <X size={15} />
+                  </button>
+                </div>
+                {navigationMenu.entries.map((entry) => (
+                  <button
+                    className="navigation-history-row"
+                    key={`${entry.index}-${entry.url}`}
+                    onClick={() => {
+                      activeTab && void window.space.tabAction("history-go", { tabId: activeTab.id, index: entry.index });
+                      setNavigationMenu(null);
+                    }}
+                    title={entry.url}
+                  >
+                    <img className="history-favicon" src={faviconForUrl(entry.url)} alt="" />
+                    <span>
+                      <strong>{entry.title}</strong>
+                      <small>{hostLabel(entry.url)}</small>
+                    </span>
+                  </button>
+                ))}
               </section>
             )}
           </div>

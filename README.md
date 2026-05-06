@@ -77,6 +77,37 @@ release\Space_-Setup-0.1.0.exe
 
 The installed desktop and Start Menu shortcuts launch `Space_` directly without opening a command prompt.
 
+## Browser Shortcuts
+
+Space_ supports the normal daily browser shortcuts:
+
+- `Ctrl+T` new tab, `Ctrl+Shift+T` restore closed tab, `Ctrl+W` close tab.
+- `Ctrl+N` new window, `Ctrl+Shift+N` private window.
+- `Ctrl+Tab` / `Ctrl+Shift+Tab` cycle tabs, `Ctrl+1` through `Ctrl+8` select numbered tabs, `Ctrl+9` jumps to the last tab.
+- `Alt+Left` / `Alt+Right` go back and forward. Hold or right-click the back/forward buttons to open tab history.
+- `Ctrl+L` or `Alt+D` focuses the address bar, `Ctrl+R` or `F5` reloads.
+- `Ctrl++`, `Ctrl+-`, `Ctrl+0`, and `Ctrl` + mouse wheel zoom pages.
+- `Ctrl+D` bookmarks the current page, `Ctrl+H` opens History, `Ctrl+J` opens Downloads, `Ctrl+B` opens Bookmarks.
+- `Ctrl+U` opens view source, `Ctrl+P` prints, `Ctrl+S` saves the current page, `F11` toggles fullscreen.
+- Middle-click a tab to close it. Middle-click a normal page link to open it in a new tab.
+
+## Code Signing
+
+The installer build is ready for Windows Authenticode signing, but a trusted signature requires a real code-signing certificate issued to the publisher. A self-signed certificate will not build SmartScreen or antivirus trust for friends and public downloads.
+
+Recommended path:
+
+1. Buy an OV or EV Windows code-signing certificate for `SWD7` from a trusted CA.
+2. Configure Electron Builder signing secrets with `CSC_LINK` and `CSC_KEY_PASSWORD`, or install the certificate in the Windows certificate store.
+3. Rebuild with `npm run installer`.
+4. Verify with:
+
+```powershell
+Get-AuthenticodeSignature release\Space_-Setup-0.1.0.exe
+```
+
+If the status is `NotSigned`, SmartScreen or antivirus products such as McAfee can still warn or quarantine the installer because the file has no trusted publisher reputation.
+
 ## Sharing Space_
 
 For friends or public downloads, upload the installer:
