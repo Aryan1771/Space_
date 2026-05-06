@@ -14,6 +14,12 @@ Space_ is a Chromium-based desktop browser built with Electron, React, Tailwind,
 - GX Control scaffold for background tab behavior, suspension policy, network presets, and animation levels.
 - Utilities for screenshots, cleaner actions, downloads, bookmarks, private tabs, auto Picture-in-Picture for playing videos, Wayback Machine, Speedreader, DevTools, Chrome Web Store browsing, and Load Unpacked developer extensions.
 
+## License / EULA
+
+Space_ is the property of SWD7. It is free and open-source software for personal, educational, and development use. You may inspect, modify, and share Space_ for free, but you may not sell it, charge money for redistribution, rent it, sublicense it for money, or misrepresent yourself as SWD7 or as the official owner of Space_.
+
+The installer displays the full EULA from `installer/LICENSE.txt`.
+
 ## Feature Coverage
 
 Space_ does not fake server-backed or OS-kernel features. Tor, VPN, cross-device sync, hard RAM caps, hard CPU caps, and remote mod marketplace are intentionally not shown as working features until real infrastructure exists.
@@ -70,6 +76,22 @@ release\Space_-Setup-0.1.0.exe
 ```
 
 The installed desktop and Start Menu shortcuts launch `Space_` directly without opening a command prompt.
+
+## Sharing Space_
+
+For friends or public downloads, upload the installer:
+
+```powershell
+release\Space_-Setup-0.1.0.exe
+```
+
+For a portable ZIP, compress the entire folder below and share that ZIP:
+
+```powershell
+release\win-unpacked
+```
+
+Do not upload only `Space_.exe`; Electron apps need the files beside the executable. If sharing source code, upload the full repository except `node_modules`, then users can run `npm install` and `npm run installer`.
 
 ## Development
 

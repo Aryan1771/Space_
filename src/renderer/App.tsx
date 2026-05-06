@@ -198,7 +198,6 @@ type UtilityPanel = "shields" | "tabs" | "history" | "performance" | "ai" | "uti
 type SpeedDialEntry = { id: string; title: string; url: string; color?: string };
 type SpeedDialDraft = SpeedDialEntry & { isNew?: boolean; sourceDefaultId?: string };
 type WeatherState = { status: "idle" | "loading" | "ready" | "error"; temperature?: number; city?: string; label: string; latitude?: number; longitude?: number };
-type TooltipState = { text: string; left: number; top: number } | null;
 type FeatureStatus = "working" | "partial" | "planned" | "removed";
 type LocalPageId = "start" | "settings" | "mods" | "history" | "downloads" | "bookmarks" | "extensions" | "notes";
 
@@ -312,7 +311,6 @@ export function App() {
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const [speedDialDraft, setSpeedDialDraft] = useState<SpeedDialDraft | null>(null);
   const [weather, setWeather] = useState<WeatherState>({ status: "idle", label: "Use location" });
-  const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [extensionsOpen, setExtensionsOpen] = useState(false);
   const [extensions, setExtensions] = useState<ExtensionRecord[]>([]);
   const lastDragTarget = useRef<string | null>(null);
@@ -419,31 +417,6 @@ export function App() {
     document.addEventListener("pointerdown", closeFloatingPanels, true);
     return () => document.removeEventListener("pointerdown", closeFloatingPanels, true);
   }, [extensionsOpen, snapshot.sidebarOpen, snapshot.sidebarPinned, snapshot.utilityDockOpen]);
-
-  useEffect(() => {
-    function showTooltip(event: PointerEvent) {
-      const element = event.target instanceof Element ? event.target.closest("[data-tip]") : null;
-      const text = element?.getAttribute("data-tip");
-      if (!element || !text) return;
-      const rect = element.getBoundingClientRect();
-      setTooltip({
-        text,
-        left: Math.max(12, Math.min(window.innerWidth - 12, rect.left + rect.width / 2)),
-        top: Math.max(12, rect.top - 10)
-      });
-    }
-    function hideTooltip() {
-      setTooltip(null);
-    }
-    document.addEventListener("pointerover", showTooltip);
-    document.addEventListener("pointerout", hideTooltip);
-    window.addEventListener("scroll", hideTooltip, true);
-    return () => {
-      document.removeEventListener("pointerover", showTooltip);
-      document.removeEventListener("pointerout", hideTooltip);
-      window.removeEventListener("scroll", hideTooltip, true);
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -628,7 +601,6 @@ export function App() {
                 key={app.id}
                 className={`sidebar-app ${snapshot.activeSidebarAppId === app.id ? "active" : ""}`}
                 title={app.name}
-                data-tip={app.name}
                 aria-label={app.name}
                 onClick={() => void openSidebarTarget(app)}
               >
@@ -660,14 +632,14 @@ export function App() {
             <span>{snapshot.sidebarPinned ? "Docked" : "Overlay"}</span>
           </div>
           <div className="sidebar-toolbar-actions">
-            <button onClick={() => void window.space.tabAction("toggle-sidebar-pin")} title={snapshot.sidebarPinned ? "Unpin panel" : "Pin panel"} data-tip={snapshot.sidebarPinned ? "Unpin panel" : "Pin panel"}>
+            <button onClick={() => void window.space.tabAction("toggle-sidebar-pin")} title={snapshot.sidebarPinned ? "Unpin panel" : "Pin panel"}>
               {snapshot.sidebarPinned ? <PinOff size={16} /> : <Pin size={16} />}
             </button>
-            <button onClick={() => void window.space.tabAction("close-sidebar")} title="Close panel" data-tip="Close panel">
+            <button onClick={() => void window.space.tabAction("close-sidebar")} title="Close panel">
               <X size={16} />
             </button>
           </div>
-          <div className="sidebar-drag-resizer" onMouseDown={() => setResizingSidebar(true)} title="Drag to resize sidebar" />
+          <div className="sidebar-drag-resizer" onMouseDown={() => setResizingSidebar(true)} />
         </div>
       )}
 
@@ -676,8 +648,7 @@ export function App() {
           className="sidebar-full-resizer"
           style={{ left: 64 + sidebarWidth - 10 }}
           onMouseDown={() => setResizingSidebar(true)}
-          title="Drag to resize panel"
-          data-tip="Resize panel"
+          title="Resize panel"
         />
       )}
 
@@ -745,7 +716,6 @@ export function App() {
                     <span
                       className="tab-close"
                       role="button"
-                      title="Close tab"
                       onClick={(event) => {
                         event.stopPropagation();
                         void window.space.tabAction("close", { tabId: tab.id });
@@ -757,17 +727,17 @@ export function App() {
                 </button>
               ))}
             </div>
-              <button className="new-tab-button" onClick={() => void window.space.tabAction("new")} title="New tab" data-tip="New tab">
+              <button className="new-tab-button" onClick={() => void window.space.tabAction("new")} title="New tab">
               <Plus size={19} />
             </button>
             <div className="window-controls">
-              <button onClick={() => void window.space.windowControl("minimize")} title="Minimize" data-tip="Minimize">
+              <button onClick={() => void window.space.windowControl("minimize")} title="Minimize">
                 <Minus size={14} />
               </button>
-              <button onClick={() => void window.space.windowControl("maximize")} title={snapshot.isMaximized ? "Restore" : "Maximize"} data-tip={snapshot.isMaximized ? "Restore" : "Maximize"}>
+              <button onClick={() => void window.space.windowControl("maximize")} title={snapshot.isMaximized ? "Restore" : "Maximize"}>
                 {snapshot.isMaximized ? <Copy size={13} /> : <Square size={13} />}
               </button>
-              <button className="close-window" onClick={() => void window.space.windowControl("close")} title="Close" data-tip="Close">
+              <button className="close-window" onClick={() => void window.space.windowControl("close")} title="Close">
                 <X size={14} />
               </button>
             </div>
@@ -775,22 +745,22 @@ export function App() {
 
           <div className="toolbar">
             <div className="toolbar-actions">
-              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("back", { tabId: activeTab.id })} title="Back" data-tip="Back">
+              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("back", { tabId: activeTab.id })} title="Back">
                 <ArrowLeft size={18} />
               </button>
-              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("forward", { tabId: activeTab.id })} title="Forward" data-tip="Forward">
+              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("forward", { tabId: activeTab.id })} title="Forward">
                 <ArrowRight size={18} />
               </button>
-              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("reload", { tabId: activeTab.id })} title="Reload" data-tip="Reload">
+              <button className="circle-button" onClick={() => activeTab && void window.space.tabAction("reload", { tabId: activeTab.id })} title="Reload">
                 <RefreshCcw size={18} />
               </button>
-              <button className="circle-button" onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://www.google.com")} title="Home" data-tip="Home">
+              <button className="circle-button" onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://www.google.com")} title="Home">
                 <Home size={18} />
               </button>
             </div>
 
             <div className="address-shell">
-              <button className={`shield-pill ${activeTab?.shieldState.httpsUpgrade ? "on" : "off"}`} onClick={() => void toggleUtilityPanel("shields")} title="Open Shields controls" data-tip="Shields">
+              <button className={`shield-pill ${activeTab?.shieldState.httpsUpgrade ? "on" : "off"}`} onClick={() => void toggleUtilityPanel("shields")} title="Shields">
                 <span className="shield-click-zone">
                 <ShieldCheck size={17} />
                 Shields
@@ -800,36 +770,35 @@ export function App() {
               <button
                 className={`toolbar-utility ${snapshot.settings.autoPictureInPicture ? "active" : ""}`}
                 onClick={() => activeTab && void window.space.requestPictureInPicture(activeTab.id)}
-                title="Pop out playing video"
-                data-tip="Picture in picture"
+                title="Picture in picture"
               >
                 <MonitorPlay size={18} />
               </button>
-              <button className="toolbar-utility" onClick={() => activeTab && void window.space.toggleBookmark?.(activeTab.id)} title="Bookmark this page" data-tip="Bookmark">
+              <button className="toolbar-utility" onClick={() => activeTab && void window.space.toggleBookmark?.(activeTab.id)} title="Bookmark">
                 <Star size={18} />
               </button>
               {(snapshot.settings.pinnedExtensions ?? []).slice(0, 4).map((id) => {
                 const extension = extensions.find((item) => item.id === id);
                 if (!extension) return null;
                 return (
-                  <button key={id} className="toolbar-utility pinned-extension-button" title={extension.name} data-tip={extension.name}>
+                  <button key={id} className="toolbar-utility pinned-extension-button" title={extension.name}>
                     <Puzzle size={18} />
                   </button>
                 );
               })}
-              <button className="toolbar-utility extensions-toolbar-button" onClick={() => void toggleExtensionsPopover()} title="Extensions" data-tip="Extensions">
+              <button className="toolbar-utility extensions-toolbar-button" onClick={() => void toggleExtensionsPopover()} title="Extensions">
                 <Puzzle size={18} />
               </button>
-              <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("downloads")} title="Downloads" data-tip="Downloads">
+              <button className="toolbar-utility" onClick={() => void window.space.openSidebarApp("downloads")} title="Downloads">
                 <Download size={18} />
               </button>
-              <button className="toolbar-utility" onClick={() => void window.space.tabAction("new-window")} title="New window" data-tip="New window">
+              <button className="toolbar-utility" onClick={() => void window.space.tabAction("new-window")} title="New window">
                 <ExternalLink size={18} />
               </button>
-              <button className="toolbar-utility" onClick={() => activeTab && void window.space.navigate(activeTab.id, "space://settings")} title="Settings" data-tip="Settings">
+              <button className="toolbar-utility" onClick={() => activeTab && void window.space.navigate(activeTab.id, "space://settings")} title="Settings">
                 <CircleUserRound size={18} />
               </button>
-              <button className={`toolbar-utility ${snapshot.utilityDockOpen ? "active" : ""}`} onClick={() => void toggleUtilityPanel("shields")} title="Toggle right controls" data-tip="Controls">
+              <button className={`toolbar-utility ${snapshot.utilityDockOpen ? "active" : ""}`} onClick={() => void toggleUtilityPanel("shields")} title="Controls">
                 <PanelRightOpen size={18} />
               </button>
             </div>
@@ -841,7 +810,7 @@ export function App() {
               <section className="extensions-popover">
                 <div className="popover-header">
                   <strong>Extensions</strong>
-                  <button onClick={() => setExtensionsOpen(false)} title="Close extensions" data-tip="Close">
+                  <button onClick={() => setExtensionsOpen(false)} title="Close">
                     <X size={15} />
                   </button>
                 </div>
@@ -857,8 +826,7 @@ export function App() {
                       <span>{extension.name}</span>
                       <button
                         onClick={() => void toggleExtensionPin(extension.id)}
-                        title={extension.pinned ? "Unpin extension" : "Pin extension"}
-                        data-tip={extension.pinned ? "Unpin from toolbar" : "Pin to toolbar"}
+                        title={extension.pinned ? "Unpin from toolbar" : "Pin to toolbar"}
                       >
                         {extension.pinned ? <PinOff size={17} /> : <Pin size={17} />}
                       </button>
@@ -900,14 +868,14 @@ export function App() {
               </div>
 
               <div className="home-widgets">
-                <button className="profile-widget" onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://accounts.google.com/")} title="Sign in with Google" data-tip="Google account">
+                <button className="profile-widget" onClick={() => activeTab && void window.space.navigate(activeTab.id, "https://accounts.google.com/")} title="Google account">
                   <div className="widget-avatar">
                     <SpaceLogoMark />
                   </div>
                   <strong>Space_ Account</strong>
                   <span>Google sign-in</span>
                 </button>
-                <button className="weather-widget" onClick={() => openWeatherDetails()} title={weather.status === "error" ? weather.label : "Live weather from Open-Meteo"} data-tip="Open live Open-Meteo weather details">
+                <button className="weather-widget" onClick={() => openWeatherDetails()} title="Open live Open-Meteo weather details">
                   <CloudSun size={28} />
                   <strong>{weather.label}</strong>
                   <span><MapPin size={13} /> {weather.city ?? "GPS location"}</span>
@@ -941,8 +909,7 @@ export function App() {
                     <span className="dial-edit-actions">
                       <button
                         type="button"
-                        title="Edit Speed Dial"
-                        data-tip="Edit"
+                        title="Edit"
                         onClick={(event) => {
                           event.stopPropagation();
                           openSpeedDialEditor(entry);
@@ -952,8 +919,7 @@ export function App() {
                       </button>
                       <button
                         type="button"
-                        title="Delete Speed Dial"
-                        data-tip="Delete"
+                        title="Delete"
                         onClick={(event) => {
                           event.stopPropagation();
                           void deleteSpeedDial(entry);
@@ -984,10 +950,10 @@ export function App() {
 
           {snapshot.utilityDockOpen ? (
           <div ref={utilityDockRef} className={`utility-dock panel-${activeUtilityPanel}`} style={{ width: utilityWidth }}>
-            <div className="utility-resizer" onMouseDown={() => setResizingUtility(true)} title="Drag to resize controls" data-tip="Resize controls" />
+            <div className="utility-resizer" onMouseDown={() => setResizingUtility(true)} title="Resize controls" />
             <div className="utility-dock-header">
               <strong>{panelTitle(activeUtilityPanel)}</strong>
-              <button onClick={() => void window.space.setUtilityDockOpen(false)} title="Collapse right controls" data-tip="Close controls">
+              <button onClick={() => void window.space.setUtilityDockOpen(false)} title="Close controls">
                 <X size={16} />
               </button>
             </div>
@@ -998,7 +964,6 @@ export function App() {
                   className={activeUtilityPanel === id ? "active" : ""}
                   onClick={() => setActiveUtilityPanel(id)}
                   title={tip}
-                  data-tip={tip}
                 >
                   <Icon size={16} />
                   {label}
@@ -1067,7 +1032,7 @@ export function App() {
                       <strong>{entry.title}</strong>
                       <span>{entry.url}</span>
                     </button>
-                    <button className="icon-danger" title="Delete history item" onClick={() => void window.space.deleteHistory(entry.id)}>
+                    <button className="icon-danger" onClick={() => void window.space.deleteHistory(entry.id)}>
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -1213,7 +1178,7 @@ export function App() {
             )}
           </div>
           ) : (
-            <button className="right-dock-peek" onClick={() => void toggleUtilityPanel("shields")} title="Open controls" data-tip="Open controls">
+            <button className="right-dock-peek" onClick={() => void toggleUtilityPanel("shields")} title="Open controls">
               <PanelRightOpen size={18} />
             </button>
           )}
@@ -1269,11 +1234,6 @@ export function App() {
               </button>
             </div>
           </section>
-        </div>
-      )}
-      {tooltip && (
-        <div className="floating-tooltip" style={{ left: tooltip.left, top: tooltip.top }}>
-          {tooltip.text}
         </div>
       )}
     </div>
@@ -1543,17 +1503,17 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
               <span>Chromium can save site credentials in the browser profile. Space_ surfaces the setting here and keeps local profile data on this PC.</span>
             </div>
             <div className="settings-toggle-list compact-list">
-              <button className="active" data-tip="Let Chromium offer to save passwords for websites you sign in to.">
+              <button className="active" title="Let Chromium offer to save passwords for websites you sign in to.">
                 <BadgeCheck size={18} />
                 <strong>Offer to save passwords</strong>
                 <span>On</span>
               </button>
-              <button className="active" data-tip="Let websites use passkeys in normal full tabs. Sidebar message panels keep passkeys disabled to avoid surprise popups.">
+              <button className="active" title="Let websites use passkeys in normal full tabs. Sidebar message panels keep passkeys disabled to avoid surprise popups.">
                 <Fingerprint size={18} />
                 <strong>Passkeys in full tabs</strong>
                 <span>On</span>
               </button>
-              <button data-tip="Space_ sync needs a future account server, so passwords stay local for now.">
+              <button title="Space_ sync needs a future account server, so passwords stay local for now.">
                 <CloudSun size={18} />
                 <strong>Password sync</strong>
                 <span>Local only</span>
@@ -1768,7 +1728,7 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
                 <strong>{entry.title}</strong>
                 <span>{entry.url}</span>
               </button>
-              <button className="icon-danger" title="Delete history item" data-tip="Delete" onClick={() => void window.space.deleteHistory(entry.id)}>
+              <button className="icon-danger" title="Delete" onClick={() => void window.space.deleteHistory(entry.id)}>
                 <Trash2 size={16} />
               </button>
             </div>

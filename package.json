@@ -5,7 +5,7 @@
   "description": "Space_ - Chromium browser with Opera GX inspired UI and Brave style Shields",
   "main": "dist/main/index.js",
   "author": "Aryan",
-  "license": "MIT",
+  "license": "LicenseRef-SWD7-Free-Open-Source",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:main\"",
     "dev:renderer": "vite",
