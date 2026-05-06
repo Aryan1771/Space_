@@ -71,6 +71,8 @@ export interface AppSettings {
   soundsEnabled: boolean;
   autoPictureInPicture: boolean;
   pictureInPictureOpacity: number;
+  forceDarkPages: boolean;
+  forceDarkSiteRules: Record<string, boolean>;
   notes: string[];
   speedDial: Array<{ id: string; title: string; url: string; color?: string }>;
   hiddenSpeedDialIds: string[];

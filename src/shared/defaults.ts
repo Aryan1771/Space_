@@ -48,6 +48,8 @@ export const defaultSettings: AppSettings = {
   soundsEnabled: true,
   autoPictureInPicture: true,
   pictureInPictureOpacity: 0.92,
+  forceDarkPages: false,
+  forceDarkSiteRules: {},
   notes: [],
   hiddenSpeedDialIds: [],
   pinnedExtensions: [],

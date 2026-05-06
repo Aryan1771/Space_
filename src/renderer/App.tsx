@@ -29,6 +29,7 @@ import {
   MessageCircleMore,
   MessagesSquare,
   Minus,
+  Moon,
   MonitorPlay,
   MousePointer2,
   Music4,
@@ -103,6 +104,8 @@ const emptyState: BrowserStateSnapshot = {
     soundsEnabled: true,
     autoPictureInPicture: true,
     pictureInPictureOpacity: 0.92,
+    forceDarkPages: false,
+    forceDarkSiteRules: {},
     notes: [],
     hiddenSpeedDialIds: [],
     pinnedExtensions: [],
@@ -1533,6 +1536,36 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
             )}
             {renderShieldToggle("Scripts", snapshot.settings.shieldDefaults.scripts, (value) => window.space.setGlobalShields({ scripts: value }))}
           </div>
+          <div className="settings-toggle-list compact-list">
+            <button
+              className={snapshot.settings.forceDarkPages ? "active" : ""}
+              onClick={() => void patchSettings({ forceDarkPages: !snapshot.settings.forceDarkPages })}
+            >
+              <Moon size={18} />
+              <strong>Force dark pages by default</strong>
+              <span>{snapshot.settings.forceDarkPages ? "On" : "Off"}</span>
+            </button>
+          </div>
+          <p className="panel-note">Right-click inside any website to turn Force Dark Pages on or off for that specific site. Site rules override the global default and are remembered.</p>
+          {Object.keys(snapshot.settings.forceDarkSiteRules).length > 0 && (
+            <div className="site-rule-list">
+              {Object.entries(snapshot.settings.forceDarkSiteRules).map(([hostname, enabled]) => (
+                <div className="site-rule-row" key={hostname}>
+                  <span>{hostname}</span>
+                  <strong>{enabled ? "Force dark on" : "Force dark off"}</strong>
+                  <button
+                    onClick={() => {
+                      const nextRules = { ...snapshot.settings.forceDarkSiteRules };
+                      delete nextRules[hostname];
+                      void patchSettings({ forceDarkSiteRules: nextRules });
+                    }}
+                  >
+                    Reset
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="native-section" id="performance">

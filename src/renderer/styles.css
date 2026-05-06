@@ -1611,6 +1611,42 @@ body {
   grid-template-columns: 1fr;
 }
 
+.site-rule-list {
+  display: grid;
+  gap: 8px;
+}
+
+.site-rule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.site-rule-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-rule-row strong {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.site-rule-row button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
 .password-manager-card {
   display: grid;
   gap: 14px;

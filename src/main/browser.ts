@@ -1,4 +1,4 @@
-import { app, BrowserView, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import { app, BrowserView, BrowserWindow, dialog, ipcMain, Menu, session, shell } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { ElectronBlocker } from "@cliqz/adblocker-electron";
@@ -68,6 +68,48 @@ const authCookieHosts = [
   "outlook.live.com",
   "office.com"
 ];
+const forceDarkStyle = `
+  :root, html.space-force-dark {
+    color-scheme: dark !important;
+    background: #05070c !important;
+  }
+  html.space-force-dark body {
+    background: #05070c !important;
+    color: #f8fafc !important;
+  }
+  html.space-force-dark :where(body, main, article, section, aside, header, footer, nav, div, form, table, tbody, thead, tr, td, th, ul, ol, li, p, span, label, summary, details):not([class*="logo" i]):not([id*="logo" i]) {
+    background-color: transparent !important;
+    color: #f8fafc !important;
+    border-color: #475569 !important;
+    text-shadow: none !important;
+  }
+  html.space-force-dark :where(main, article, section, aside, header, footer, nav, form, table, dialog, [role="dialog"], [role="menu"], [role="listbox"], [class*="card" i], [class*="panel" i], [class*="modal" i], [class*="popover" i], [class*="dropdown" i]) {
+    background-color: #0b1220 !important;
+    color: #f8fafc !important;
+  }
+  html.space-force-dark :where(input, textarea, select, button, [contenteditable="true"]) {
+    background-color: #111827 !important;
+    color: #ffffff !important;
+    border-color: #64748b !important;
+    caret-color: #ffffff !important;
+  }
+  html.space-force-dark :where(a, a *, [role="link"], [role="link"] *) {
+    color: #8ecbff !important;
+  }
+  html.space-force-dark :where(h1, h2, h3, h4, h5, h6, strong, b) {
+    color: #ffffff !important;
+  }
+  html.space-force-dark :where(small, time, code, pre, blockquote) {
+    color: #dbeafe !important;
+  }
+  html.space-force-dark :where(svg, img, video, canvas, picture, iframe) {
+    filter: none !important;
+  }
+  html.space-force-dark ::selection {
+    background: #38bdf8 !important;
+    color: #020617 !important;
+  }
+`;
 
 export class SpaceBrowserApp {
   private mainWindow: BrowserWindow | null = null;
@@ -187,8 +229,15 @@ export class SpaceBrowserApp {
     });
     ipcMain.handle(IPC_CHANNELS.windowControl, async (_event, { action }) => this.controlWindow(action));
     ipcMain.handle(IPC_CHANNELS.settingsPatch, async (_event, patch) => {
-      const settings = { ...this.getSettings(), ...patch } as AppSettings;
+      const previous = this.getSettings();
+      const settings = { ...previous, ...patch } as AppSettings;
       appStore.set("settings", settings);
+      if (
+        Object.prototype.hasOwnProperty.call(patch, "forceDarkPages") ||
+        Object.prototype.hasOwnProperty.call(patch, "forceDarkSiteRules")
+      ) {
+        void this.applyForceDarkToAllViews();
+      }
       this.publishSnapshot();
     });
     ipcMain.handle(IPC_CHANNELS.shieldSetGlobal, async (_event, patch) => {
@@ -244,6 +293,8 @@ export class SpaceBrowserApp {
       notes: (stored as Partial<AppSettings>).notes ?? defaultSettings.notes,
       hiddenSpeedDialIds: (stored as Partial<AppSettings>).hiddenSpeedDialIds ?? defaultSettings.hiddenSpeedDialIds,
       pinnedExtensions: (stored as Partial<AppSettings>).pinnedExtensions ?? defaultSettings.pinnedExtensions,
+      forceDarkPages: (stored as Partial<AppSettings>).forceDarkPages ?? defaultSettings.forceDarkPages,
+      forceDarkSiteRules: (stored as Partial<AppSettings>).forceDarkSiteRules ?? defaultSettings.forceDarkSiteRules,
       speedDial: (stored as Partial<AppSettings>).speedDial ?? defaultSettings.speedDial
     } as AppSettings;
   }
@@ -325,6 +376,7 @@ export class SpaceBrowserApp {
       void this.createTab({ url, private: tab.record.private });
       return { action: "deny" };
     });
+    wc.on("context-menu", (_event, params) => this.showPageContextMenu(tab, params));
     wc.on("page-title-updated", (_event, title) => {
       tab.record.title = title || "New Tab";
       this.updateWindowTitle();
@@ -410,6 +462,124 @@ export class SpaceBrowserApp {
             window.open(href, "_blank", "noopener,noreferrer");
           }, true);
           return true;
+        })();
+      `,
+        true
+      )
+      .catch(() => {});
+    await this.applyForceDarkToTab(tab);
+  }
+
+  private showPageContextMenu(tab: BrowserTab, params: Electron.ContextMenuParams) {
+    this.showWebContentsContextMenu(tab.view.webContents, tab.record.url, tab.record.private, params);
+  }
+
+  private showWebContentsContextMenu(webContents: Electron.WebContents, pageUrl: string, isPrivate: boolean, params: Electron.ContextMenuParams) {
+    if (pageUrl.startsWith("space://")) return;
+    const hostname = this.hostnameForForceDark(pageUrl);
+    const settings = this.getSettings();
+    const siteValue = hostname ? settings.forceDarkSiteRules[hostname] : undefined;
+    const effective = this.resolveForceDarkForUrl(pageUrl, settings);
+    const menu = Menu.buildFromTemplate([
+      ...(params.linkURL
+        ? [
+            {
+              label: "Open link in new tab",
+              click: () => void this.createTab({ url: params.linkURL, private: isPrivate })
+            }
+          ]
+        : []),
+      {
+        label: hostname ? `Force dark pages on ${hostname}` : "Force dark pages on this site",
+        type: "checkbox",
+        checked: effective,
+        enabled: Boolean(hostname),
+        click: () => {
+          if (!hostname) return;
+          this.setForceDarkForSite(hostname, !effective);
+          void this.applyForceDarkToContents(webContents, !effective);
+        }
+      },
+      {
+        label: "Use global Force Dark default for this site",
+        enabled: Boolean(hostname) && siteValue !== undefined,
+        click: () => {
+          if (!hostname) return;
+          this.clearForceDarkForSite(hostname);
+          void this.applyForceDarkToContents(webContents, this.getSettings().forceDarkPages);
+        }
+      },
+      { type: "separator" },
+      { role: "copy", enabled: params.selectionText.length > 0 },
+      { role: "selectAll" },
+      { type: "separator" },
+      {
+        label: "Inspect",
+        click: () => webContents.inspectElement(params.x, params.y)
+      }
+    ]);
+    menu.popup({ window: this.mainWindow ?? undefined });
+  }
+
+  private setForceDarkForSite(hostname: string, enabled: boolean) {
+    const settings = this.getSettings();
+    const forceDarkSiteRules = { ...settings.forceDarkSiteRules, [hostname]: enabled };
+    appStore.set("settings", { ...settings, forceDarkSiteRules });
+    void this.applyForceDarkToAllViews();
+    this.publishSnapshot();
+  }
+
+  private clearForceDarkForSite(hostname: string) {
+    const settings = this.getSettings();
+    const forceDarkSiteRules = { ...settings.forceDarkSiteRules };
+    delete forceDarkSiteRules[hostname];
+    appStore.set("settings", { ...settings, forceDarkSiteRules });
+    void this.applyForceDarkToAllViews();
+    this.publishSnapshot();
+  }
+
+  private hostnameForForceDark(value: string) {
+    try {
+      const hostname = new URL(value).hostname.toLowerCase();
+      return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveForceDarkForUrl(value: string, settings = this.getSettings()) {
+    const hostname = this.hostnameForForceDark(value);
+    if (hostname && Object.prototype.hasOwnProperty.call(settings.forceDarkSiteRules, hostname)) {
+      return Boolean(settings.forceDarkSiteRules[hostname]);
+    }
+    return Boolean(settings.forceDarkPages);
+  }
+
+  private async applyForceDarkToTab(tab: BrowserTab) {
+    if (tab.record.url.startsWith("space://")) return;
+    await this.applyForceDarkToContents(tab.view.webContents, this.resolveForceDarkForUrl(tab.record.url));
+  }
+
+  private async applyForceDarkToAllViews() {
+    await Promise.all([...this.tabs.values()].map((tab) => this.applyForceDarkToTab(tab)));
+  }
+
+  private async applyForceDarkToContents(webContents: Electron.WebContents, enabled: boolean) {
+    if (webContents.isDestroyed()) return;
+    await webContents
+      .executeJavaScript(
+        `
+        (() => {
+          const styleId = "space-force-dark-style";
+          let style = document.getElementById(styleId);
+          if (!style) {
+            style = document.createElement("style");
+            style.id = styleId;
+            style.textContent = ${JSON.stringify(forceDarkStyle)};
+            document.documentElement.append(style);
+          }
+          document.documentElement.classList.toggle("space-force-dark", ${JSON.stringify(enabled)});
+          return document.documentElement.classList.contains("space-force-dark");
         })();
       `,
         true
@@ -818,6 +988,12 @@ export class SpaceBrowserApp {
       this.openDetachedWindow(details.url, "New Window");
       return { action: "deny" };
     });
+    detachedView.webContents.on("did-stop-loading", () => {
+      void this.applyForceDarkToContents(detachedView.webContents, this.resolveForceDarkForUrl(detachedView.webContents.getURL()));
+    });
+    detachedView.webContents.on("context-menu", (_event, params) => {
+      this.showWebContentsContextMenu(detachedView.webContents, detachedView.webContents.getURL(), isPrivate, params);
+    });
     void detachedView.webContents.loadURL(this.isInternalStartUrl(url) ? "https://www.google.com" : this.normalizeUrl(url));
   }
 
@@ -857,6 +1033,14 @@ export class SpaceBrowserApp {
       this.sidebarView.webContents.on("dom-ready", () => {
         void this.disableSidebarPasskeys();
       });
+      this.sidebarView.webContents.on("did-stop-loading", () => {
+        if (!this.sidebarView) return;
+        void this.applyForceDarkToContents(this.sidebarView.webContents, this.resolveForceDarkForUrl(this.sidebarView.webContents.getURL()));
+      });
+      this.sidebarView.webContents.on("context-menu", (_event, params) => {
+        if (!this.sidebarView) return;
+        this.showWebContentsContextMenu(this.sidebarView.webContents, this.sidebarView.webContents.getURL(), false, params);
+      });
       this.sidebarView.webContents.setWindowOpenHandler((details) => {
         void this.createTab({ url: details.url, private: false });
         return { action: "deny" };
@@ -894,6 +1078,7 @@ export class SpaceBrowserApp {
     try {
       await this.sidebarView.webContents.loadURL(url);
       await this.disableSidebarPasskeys();
+      await this.applyForceDarkToContents(this.sidebarView.webContents, this.resolveForceDarkForUrl(url));
     } catch (error) {
       if (this.isAbortedNavigation(error)) return;
       throw error;
