@@ -112,6 +112,7 @@ const forceDarkStyle = `
 export class SpaceBrowserApp {
   private static controllers = new Set<SpaceBrowserApp>();
   private static channels = new Set<string>();
+  private static pageZoomHandlerRegistered = false;
   private static downloadSessions = new WeakSet<Electron.Session>();
   private handlers = new Map<string, (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any>();
   private privateWindow = false;
@@ -139,6 +140,8 @@ export class SpaceBrowserApp {
   private sidebarOpen = false;
   private sidebarPinned = false;
   private sidebarWidth = 380;
+  private sidebarResizeActive = false;
+  private sidebarResizeSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
   private utilityDockWidth = 372;
   private activeSidebarAppId: string | null = null;
   private utilityDockOpen = false;
@@ -153,6 +156,7 @@ export class SpaceBrowserApp {
     await this.loadBlocker();
     this.configureSession(session.defaultSession);
     this.configureSession(session.fromPartition("persist:space-sidebar"), { sidebar: true });
+    this.registerPageZoomHandler();
     this.registerProtocols();
     this.createWindow();
     this.registerIpc();
@@ -172,6 +176,21 @@ export class SpaceBrowserApp {
 
   private registerProtocols() {
     app.setName("Space_");
+  }
+
+  private registerPageZoomHandler() {
+    if (SpaceBrowserApp.pageZoomHandlerRegistered) return;
+    SpaceBrowserApp.pageZoomHandlerRegistered = true;
+    ipcMain.on(IPC_CHANNELS.pageZoom, (event, delta: unknown) => {
+      if (event.senderFrame !== event.sender.mainFrame || typeof delta !== "number" || !Number.isFinite(delta)) return;
+      for (const controller of SpaceBrowserApp.controllers) {
+        const tab = [...controller.tabs.values()].find(entry => entry.view.webContents === event.sender);
+        if (tab) {
+          controller.adjustZoom(tab.record.id, Math.max(-0.1, Math.min(0.1, delta)));
+          return;
+        }
+      }
+    });
   }
 
   private createWindow() {
@@ -248,10 +267,33 @@ export class SpaceBrowserApp {
     this.handleIpc(IPC_CHANNELS.navigate, async (_event, { tabId, value }) => this.navigate(tabId, value));
     this.handleIpc(IPC_CHANNELS.sidebarOpen, async (_event, { appId }) => this.openSidebarApp(appId));
     this.handleIpc(IPC_CHANNELS.sidebarResize, async (_event, { width, pinned }) => {
+      const pinChanged = this.sidebarPinned !== pinned;
       this.sidebarWidth = this.clampSidebarWidth(width);
       this.sidebarPinned = pinned;
       this.layoutViews();
-      this.publishSnapshot();
+      if (pinChanged) this.publishSnapshot();
+    });
+    this.handleIpc(IPC_CHANNELS.sidebarDragStart, async () => {
+      this.sidebarResizeActive = true;
+      for (const tab of this.tabs.values()) tab.view.webContents.send(IPC_CHANNELS.sidebarDragStart);
+    });
+    this.handleIpc(IPC_CHANNELS.sidebarDragEnd, async () => this.stopSidebarResize());
+    ipcMain.on(IPC_CHANNELS.sidebarDragPointer, (event, screenX: unknown) => {
+      if (!this.sidebarResizeActive || typeof screenX !== "number" || !Number.isFinite(screenX)) return;
+      const tab = [...this.tabs.values()].find(entry => entry.view.webContents === event.sender);
+      if (!tab) return;
+      const contentX = this.mainWindow?.getContentBounds().x ?? 0;
+      this.sidebarWidth = this.clampSidebarWidth(screenX - contentX - railWidth);
+      this.layoutViews();
+      if (!this.sidebarResizeSnapshotTimer) {
+        this.sidebarResizeSnapshotTimer = setTimeout(() => {
+          this.sidebarResizeSnapshotTimer = null;
+          this.publishSnapshot();
+        }, 40);
+      }
+    });
+    ipcMain.on(IPC_CHANNELS.sidebarDragEnd, (event) => {
+      if ([...this.tabs.values()].some(tab => tab.view.webContents === event.sender)) this.stopSidebarResize();
     });
     this.handleIpc(IPC_CHANNELS.uiSetUtilityDock, async (_event, { open, width }) => {
       const nextOpen = Boolean(open);
@@ -363,10 +405,16 @@ export class SpaceBrowserApp {
     const view = new BrowserView({
       webPreferences: {
         partition,
+        preload: path.join(app.getAppPath(), "dist", "preload", "page.js"),
         sandbox: true,
         backgroundThrottling: true
       }
     });
+    view.webContents.setUserAgent(this.compatibleUserAgent(view.webContents.getUserAgent()));
+    view.webContents.setZoomFactor(1);
+    view.webContents.setVisualZoomLevelLimits(0.25, 5).catch(() => {});
+    view.webContents.setBackgroundThrottling(true);
+    view.setAutoResize({ width: true, height: true });
 
     const shieldState = this.resolveShieldState(input.url);
     const record: TabRecord = {
@@ -404,6 +452,10 @@ export class SpaceBrowserApp {
     await this.loadTabUrl(browserTab, this.normalizeUrl(input.url));
     this.layoutViews();
     this.publishSnapshot();
+  }
+
+  private compatibleUserAgent(userAgent: string) {
+    return userAgent.replace(/\s+Space_\/[\w.-]+/g, "").replace(/\s+Electron\/[\w.-]+/g, "");
   }
 
   private bindViewEvents(tab: BrowserTab, tabSession: Electron.Session) {
@@ -444,6 +496,7 @@ export class SpaceBrowserApp {
     wc.on("did-stop-loading", async () => {
       tab.record.loading = false;
       tab.record.url = wc.getURL();
+      if (!tab.record.islandName) tab.record.islandId = parseDomain(tab.record.url).domain ?? "general";
       tab.record.favicon = this.buildFaviconUrl(wc.getURL());
       tab.record.shieldState = this.resolveShieldState(wc.getURL());
       void this.installPageEnhancements(tab);
@@ -454,6 +507,7 @@ export class SpaceBrowserApp {
     });
     wc.on("did-navigate", (_event, url) => {
       tab.record.url = url;
+      if (!tab.record.islandName) tab.record.islandId = parseDomain(url).domain ?? "general";
       tab.record.shieldState = this.resolveShieldState(url);
       this.publishSnapshot();
     });
@@ -512,6 +566,20 @@ export class SpaceBrowserApp {
         (() => {
           if (window.__spaceBrowserEnhancements) return true;
           window.__spaceBrowserEnhancements = true;
+          let zoomDelta = 0;
+          let zoomFrame = 0;
+          document.addEventListener("wheel", (event) => {
+            if (!(event.ctrlKey || event.metaKey)) return;
+            event.preventDefault();
+            zoomDelta += event.deltaY < 0 ? 1 : -1;
+            if (zoomFrame) return;
+            zoomFrame = window.setTimeout(() => {
+              const steps = Math.max(-3, Math.min(3, zoomDelta));
+              zoomDelta = 0;
+              zoomFrame = 0;
+              if (steps) window.__spaceBrowser?.zoom(steps * 0.1);
+            }, 60);
+          }, { capture: true, passive: false });
           document.addEventListener("auxclick", (event) => {
             if (event.button !== 1) return;
             const anchor = event.target && event.target.closest ? event.target.closest("a[href]") : null;
@@ -677,12 +745,12 @@ export class SpaceBrowserApp {
       }
       if (ctrl && (key === "+" || key === "=")) {
         event.preventDefault();
-        if (this.activeTabId) this.adjustZoom(this.activeTabId, 0.5);
+        if (this.activeTabId) this.adjustZoom(this.activeTabId, 0.1);
         return;
       }
       if (ctrl && key === "-") {
         event.preventDefault();
-        if (this.activeTabId) this.adjustZoom(this.activeTabId, -0.5);
+        if (this.activeTabId) this.adjustZoom(this.activeTabId, -0.1);
         return;
       }
       if (ctrl && key === "0") {
@@ -845,16 +913,24 @@ export class SpaceBrowserApp {
       }
       callback({ responseHeaders: headers });
     });
+    const grantedPermissions = new Set<string>();
     tabSession.setPermissionRequestHandler(async (wc, permission, callback, details) => {
       if (!wc || wc.isDestroyed() || !["media", "geolocation", "notifications", "fullscreen"].includes(permission)) return callback(false);
       if (permission === "fullscreen") return callback(true);
       const origin = details.requestingUrl || wc.getURL();
       if (!origin.startsWith("https://")) return callback(false);
+      let grantKey: string;
+      try { grantKey = `${new URL(origin).origin}|${permission}`; }
+      catch { return callback(false); }
+      if (grantedPermissions.has(grantKey)) return callback(true);
       const result = await dialog.showMessageBox({ type: "question", title: "Site permission",
-        message: `${this.hostFor(origin)} wants to use ${permission}.`, buttons: ["Block", "Allow once"], defaultId: 0, cancelId: 0 });
-      callback(result.response === 1 && !wc.isDestroyed());
+        message: `${this.hostFor(origin)} wants to use ${permission}.`, buttons: ["Block", "Allow for this session"], defaultId: 0, cancelId: 0 });
+      const allowed = result.response === 1 && !wc.isDestroyed();
+      if (allowed) grantedPermissions.add(grantKey);
+      callback(allowed);
     });
-    tabSession.setPermissionCheckHandler((_wc, permission) => permission === "fullscreen");
+    tabSession.setPermissionCheckHandler((_wc, permission, requestingOrigin) =>
+      permission === "fullscreen" || grantedPermissions.has(`${requestingOrigin}|${permission}`));
   }
 
   private resolveShieldState(url: string): ShieldConfig {
@@ -989,14 +1065,30 @@ export class SpaceBrowserApp {
     if (action === "activate" && typeof payload.tabId === "string") return this.activateTab(payload.tabId);
     if (action === "restore-closed") return this.restoreClosedTab();
     if (action === "pin" && typeof payload.tabId === "string") return this.togglePin(payload.tabId);
+    if (action === "group-tabs" && Array.isArray(payload.tabIds) && typeof payload.name === "string") {
+      const name = payload.name.trim().slice(0, 32);
+      const ids = payload.tabIds.filter((id): id is string => typeof id === "string").slice(0, 32);
+      if (name && ids.length > 1) {
+        const groupId = `island-${randomUUID()}`;
+        for (const id of ids) {
+          const tab = this.tabs.get(id);
+          if (tab) {
+            tab.record.islandId = groupId;
+            tab.record.islandName = name;
+          }
+        }
+        this.publishSnapshot();
+      }
+      return;
+    }
     if (action === "next-tab") return this.activateAdjacentTab(1);
     if (action === "previous-tab") return this.activateAdjacentTab(-1);
     if (action === "back" && typeof payload.tabId === "string") return this.goBack(payload.tabId);
     if (action === "forward" && typeof payload.tabId === "string") return this.goForward(payload.tabId);
     if (action === "history-go" && typeof payload.tabId === "string" && typeof payload.index === "number") return this.goToHistoryIndex(payload.tabId, payload.index);
     if (action === "reload" && typeof payload.tabId === "string") return this.reloadTab(payload.tabId);
-    if (action === "zoom-in" && typeof payload.tabId === "string") return this.adjustZoom(payload.tabId, 0.5);
-    if (action === "zoom-out" && typeof payload.tabId === "string") return this.adjustZoom(payload.tabId, -0.5);
+    if (action === "zoom-in" && typeof payload.tabId === "string") return this.adjustZoom(payload.tabId, 0.1);
+    if (action === "zoom-out" && typeof payload.tabId === "string") return this.adjustZoom(payload.tabId, -0.1);
     if (action === "zoom-reset" && typeof payload.tabId === "string") return this.setZoom(payload.tabId, 0);
     if (action === "activate-number" && typeof payload.index === "number") return this.activateTabByNumber(payload.index);
     if (action === "local-page" && typeof payload.url === "string") return this.navigateToLocalPage(payload.url);
@@ -1009,6 +1101,7 @@ export class SpaceBrowserApp {
     if (action === "devtools" && typeof payload.tabId === "string") return this.openDevTools(payload.tabId);
     if (action === "wayback" && typeof payload.tabId === "string") return this.openWayback(payload.tabId);
     if (action === "speedreader" && typeof payload.tabId === "string") return this.applySpeedreader(payload.tabId);
+    if (action === "extension-open" && typeof payload.extensionId === "string") return this.openExtensionAction(payload.extensionId);
     if (action === "close-sidebar") return this.closeSidebar();
     if (action === "toggle-sidebar-pin") return this.toggleSidebarPin();
   }
@@ -1169,15 +1262,15 @@ export class SpaceBrowserApp {
   private adjustZoom(tabId: string, delta: number) {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
-    const current = tab.view.webContents.getZoomLevel();
-    this.setZoom(tabId, current + delta);
+    const current = tab.view.webContents.getZoomFactor();
+    this.setZoom(tabId, Math.round((current + delta) * 100) / 100);
   }
 
   private setZoom(tabId: string, level: number) {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
-    const next = Math.max(-5, Math.min(5, level));
-    tab.view.webContents.setZoomLevel(next);
+    const next = Math.max(0.5, Math.min(3, level === 0 ? 1 : level));
+    tab.view.webContents.setZoomFactor(next);
   }
 
   private titleFromUrl(value: string) {
@@ -1306,6 +1399,9 @@ export class SpaceBrowserApp {
           sandbox: true
         }
       });
+      this.sidebarView.setAutoResize({ height: true });
+      this.sidebarView.webContents.setUserAgent(this.compatibleUserAgent(this.sidebarView.webContents.getUserAgent()));
+      this.configureSession(this.sidebarView.webContents.session, { sidebar: true });
       this.sidebarView.webContents.on("did-stop-loading", () => {
         if (!this.sidebarView) return;
         void this.applyForceDarkToContents(this.sidebarView.webContents, this.resolveForceDarkForUrl(this.sidebarView.webContents.getURL()));
@@ -1315,6 +1411,22 @@ export class SpaceBrowserApp {
         this.showWebContentsContextMenu(this.sidebarView.webContents, this.sidebarView.webContents.getURL(), false, params);
       });
       this.sidebarView.webContents.setWindowOpenHandler((details) => {
+        if (details.disposition === "new-window" || details.features.trim()) {
+          return {
+            action: "allow",
+            overrideBrowserWindowOptions: {
+              width: 960,
+              height: 720,
+              autoHideMenuBar: true,
+              webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: false,
+                sandbox: true,
+                partition: this.privateWindow ? this.privatePartition : "persist:space-sidebar"
+              }
+            }
+          };
+        }
         void this.createTab({ url: details.url, private: false });
         return { action: "deny" };
       });
@@ -1348,6 +1460,7 @@ export class SpaceBrowserApp {
 
   private async loadSidebarUrl(url: string) {
     if (!this.sidebarView) return;
+    if (this.sidebarView.webContents.getURL() === url && !this.sidebarView.webContents.isLoading()) return;
     try {
       await this.sidebarView.webContents.loadURL(url);
       await this.applyForceDarkToContents(this.sidebarView.webContents, this.resolveForceDarkForUrl(url));
@@ -1463,11 +1576,19 @@ export class SpaceBrowserApp {
     return Math.max(360, Math.min(maxWidth, width));
   }
 
+  private stopSidebarResize() {
+    this.sidebarResizeActive = false;
+    if (this.sidebarResizeSnapshotTimer) clearTimeout(this.sidebarResizeSnapshotTimer);
+    this.sidebarResizeSnapshotTimer = null;
+    for (const tab of this.tabs.values()) tab.view.webContents.send(IPC_CHANNELS.sidebarDragEnd);
+    this.publishSnapshot();
+  }
+
   private layoutViews() {
     if (!this.mainWindow) return;
     const [width, height] = this.mainWindow.getContentSize();
     this.sidebarWidth = this.clampSidebarWidth(this.sidebarWidth);
-    const dockedSidebarWidth = this.sidebarOpen && this.sidebarPinned ? this.sidebarWidth : 0;
+    const dockedSidebarWidth = this.sidebarOpen ? this.sidebarWidth : 0;
     const panelWidth = this.sidebarOpen ? this.sidebarWidth : 0;
     const contentX = railWidth + dockedSidebarWidth;
     const mainWidth = width - contentX;
@@ -1481,23 +1602,22 @@ export class SpaceBrowserApp {
     for (const tab of this.tabs.values()) {
       const isActive = this.activeTabId === tab.record.id || (splitTabs.length > 0 && tab.record.isSplitParticipant);
       const shouldShow = isActive && showBrowserSurface;
-      tab.view.setBounds({ x: contentX, y: chromeHeight, width: browserWidth, height: height - chromeHeight });
-      tab.view.webContents.setAudioMuted(tab.record.isMuted);
-      tab.view.setAutoResize({ width: true, height: true });
-      tab.view.webContents.setBackgroundThrottling(true);
-      tab.view.webContents.setVisualZoomLevelLimits(0.25, 5).catch(() => {});
+      if (tab.view.webContents.isAudioMuted() !== tab.record.isMuted) tab.view.webContents.setAudioMuted(tab.record.isMuted);
       if (!shouldShow) {
-        tab.view.setBounds({ x: -20000, y: -20000, width: 10, height: 10 });
+        this.setViewBounds(tab.view, { x: -20000, y: -20000, width: 10, height: 10 });
       } else {
         visibleViews.push(tab.view);
+        if (splitTabs.length < 2 || !tab.record.isSplitParticipant) {
+          this.setViewBounds(tab.view, { x: contentX, y: chromeHeight, width: browserWidth, height: height - chromeHeight });
+        }
       }
     }
 
     if (showBrowserSurface && splitTabs.length >= 2) {
       const visible = splitTabs.slice(0, 2);
       const splitWidth = Math.floor(browserWidth / 2);
-      visible[0].view.setBounds({ x: contentX, y: chromeHeight, width: splitWidth, height: height - chromeHeight });
-      visible[1].view.setBounds({ x: contentX + splitWidth, y: chromeHeight, width: browserWidth - splitWidth, height: height - chromeHeight });
+      this.setViewBounds(visible[0].view, { x: contentX, y: chromeHeight, width: splitWidth, height: height - chromeHeight });
+      this.setViewBounds(visible[1].view, { x: contentX + splitWidth, y: chromeHeight, width: browserWidth - splitWidth, height: height - chromeHeight });
       visibleViews.push(visible[0].view, visible[1].view);
     }
 
@@ -1507,12 +1627,18 @@ export class SpaceBrowserApp {
 
     if (this.sidebarView) {
       if (this.sidebarOpen && this.activeSidebarUsesBrowserView()) {
-        this.sidebarView.setBounds({ x: railWidth, y: sidebarHeaderHeight, width: Math.max(320, panelWidth - sidebarResizeGutter), height: height - sidebarHeaderHeight });
-        this.sidebarView.setAutoResize({ height: true });
+        this.setViewBounds(this.sidebarView, { x: railWidth, y: sidebarHeaderHeight, width: Math.max(320, panelWidth - sidebarResizeGutter), height: height - sidebarHeaderHeight });
         this.mainWindow.setTopBrowserView(this.sidebarView);
       } else {
-        this.sidebarView.setBounds({ x: -10000, y: -10000, width: 10, height: 10 });
+        this.setViewBounds(this.sidebarView, { x: -10000, y: -10000, width: 10, height: 10 });
       }
+    }
+  }
+
+  private setViewBounds(view: BrowserView, bounds: Electron.Rectangle) {
+    const current = view.getBounds();
+    if (current.x !== bounds.x || current.y !== bounds.y || current.width !== bounds.width || current.height !== bounds.height) {
+      view.setBounds(bounds);
     }
   }
 
@@ -1636,7 +1762,7 @@ export class SpaceBrowserApp {
     });
     if (result.canceled || result.filePaths.length === 0) return;
     try {
-      await session.defaultSession.loadExtension(result.filePaths[0], { allowFileAccess: true });
+      await this.extensionSession().loadExtension(result.filePaths[0], { allowFileAccess: true });
       await dialog.showMessageBox(this.mainWindow, {
         type: "info",
         title: "Extension loaded",
@@ -1653,7 +1779,7 @@ export class SpaceBrowserApp {
 
   private listExtensions(): ExtensionRecord[] {
     const pinned = new Set(this.getSettings().pinnedExtensions ?? []);
-    const extensions = session.defaultSession.extensions.getAllExtensions();
+    const extensions = this.extensionSession().extensions.getAllExtensions();
     return extensions.map((extension) => ({
       id: extension.id,
       name: extension.name,
@@ -1661,6 +1787,25 @@ export class SpaceBrowserApp {
       enabled: true,
       pinned: pinned.has(extension.id)
     }));
+  }
+
+  private extensionSession() {
+    return session.fromPartition("persist:space-default");
+  }
+
+  private async openExtensionAction(id: string) {
+    const extension = this.extensionSession().extensions.getExtension(id);
+    if (!extension) return;
+    const popup = extension.manifest.action?.default_popup ?? extension.manifest.browser_action?.default_popup;
+    if (!popup) {
+      if (this.mainWindow) await dialog.showMessageBox(this.mainWindow, {
+        type: "info",
+        title: extension.name,
+        message: "This extension does not declare a browser action popup. Its background and content scripts remain active."
+      });
+      return;
+    }
+    await this.createTab({ url: new URL(popup, `chrome-extension://${extension.id}/`).toString(), private: false });
   }
 
   private async openChromeWebStore(tabId?: string) {

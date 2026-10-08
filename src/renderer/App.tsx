@@ -10,12 +10,15 @@ import {
   Bookmark,
   Brush,
   CircleUserRound,
+  ChevronDown,
+  ChevronRight,
   Clock3,
   Code2,
   Cookie,
   Cpu,
   Download,
   ExternalLink,
+  FolderPlus,
   Eye,
   Gamepad2,
   History,
@@ -221,6 +224,8 @@ export function App() {
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [resizingUtility, setResizingUtility] = useState(false);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const [selectedTabIds, setSelectedTabIds] = useState<string[]>([]);
+  const [collapsedIslands, setCollapsedIslands] = useState<Record<string, boolean>>({});
   const [speedDialDraft, setSpeedDialDraft] = useState<SpeedDialDraft | null>(null);
   const [weather, setWeather] = useState<WeatherState>({ status: "idle", label: "Use location" });
   const [extensionsOpen, setExtensionsOpen] = useState(false);
@@ -351,12 +356,14 @@ export function App() {
 
   useEffect(() => {
     if (!resizingSidebar) return;
+    void window.space.beginSidebarResize();
     function handleMove(event: MouseEvent) {
       const nextWidth = Math.max(360, Math.min(Math.max(360, window.innerWidth - 220), event.clientX - 64));
       setSidebarWidth(nextWidth);
       void window.space.resizeSidebar(nextWidth, sidebarPinnedRef.current);
     }
     function stopResize() {
+      void window.space.endSidebarResize();
       setResizingSidebar(false);
     }
     window.addEventListener("mousemove", handleMove);
@@ -462,6 +469,14 @@ export function App() {
     if (!value) return snapshot.tabs;
     return snapshot.tabs.filter((tab) => `${tab.title} ${tab.url}`.toLowerCase().includes(value));
   }, [snapshot.tabs, tabSearch]);
+  const tabIslands = useMemo(() => {
+    const groups = new Map<string, TabRecord[]>();
+    for (const tab of snapshot.tabs) {
+      const id = tab.islandId || tab.id;
+      groups.set(id, [...(groups.get(id) ?? []), tab]);
+    }
+    return [...groups.entries()];
+  }, [snapshot.tabs]);
 
   const activeSidebarApp = sidebarApps.find((app) => app.id === snapshot.activeSidebarAppId) ?? null;
   const sidebarAppGroups = useMemo(
@@ -702,12 +717,31 @@ export function App() {
 
           <div className="tab-strip">
             <div className="tab-cluster">
-              {snapshot.tabs.map((tab) => (
+              {tabIslands.map(([islandId, islandTabs]) => (
+                <div className="tab-island" key={islandId}>
+                  {islandTabs.length > 1 && (
+                    <button
+                      className="tab-island-toggle"
+                      onClick={() => setCollapsedIslands((state) => ({ ...state, [islandId]: !state[islandId] }))}
+                      title={`${collapsedIslands[islandId] ? "Expand" : "Collapse"} ${islandTabs[0].islandName || islandId} tab island`}
+                    >
+                      {collapsedIslands[islandId] ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                      <span>{islandTabs[0].islandName || islandId}</span>
+                      <small>{islandTabs.length}</small>
+                    </button>
+                  )}
+                  {!collapsedIslands[islandId] && islandTabs.map((tab) => (
                 <button
                   key={tab.id}
                   draggable
-                  className={`tab-pill ${tab.id === snapshot.activeTabId ? "active" : ""} ${tab.isPinned ? "pinned" : ""}`}
-                  onClick={() => void window.space.tabAction("activate", { tabId: tab.id })}
+                  className={`tab-pill ${tab.id === snapshot.activeTabId ? "active" : ""} ${tab.isPinned ? "pinned" : ""} ${selectedTabIds.includes(tab.id) ? "selected" : ""}`}
+                  onClick={(event) => {
+                    if (event.ctrlKey || event.metaKey) {
+                      setSelectedTabIds((ids) => ids.includes(tab.id) ? ids.filter((id) => id !== tab.id) : [...ids, tab.id]);
+                      return;
+                    }
+                    void window.space.tabAction("activate", { tabId: tab.id });
+                  }}
                   onMouseDown={(event) => {
                     if (event.button === 1) {
                       event.preventDefault();
@@ -754,8 +788,21 @@ export function App() {
                     </span>
                   </span>
                 </button>
+                  ))}
+                </div>
               ))}
             </div>
+            {selectedTabIds.length > 1 && (
+              <button
+                className="new-tab-button"
+                onClick={() => {
+                  const name = window.prompt("Name this tab island", "New Island")?.trim();
+                  if (name) void window.space.tabAction("group-tabs", { tabIds: selectedTabIds, name });
+                  setSelectedTabIds([]);
+                }}
+                title="Group selected tabs into an island"
+              ><FolderPlus size={16} /></button>
+            )}
               <button className="new-tab-button" onClick={() => void window.space.tabAction("new")} title="New tab">
               <Plus size={19} />
             </button>
@@ -852,7 +899,12 @@ export function App() {
                 const extension = extensions.find((item) => item.id === id);
                 if (!extension) return null;
                 return (
-                  <button key={id} className="toolbar-utility pinned-extension-button" title={extension.name}>
+                  <button
+                    key={id}
+                    className="toolbar-utility pinned-extension-button"
+                    onClick={() => void window.space.tabAction("extension-open", { extensionId: id })}
+                    title={extension.name}
+                  >
                     <Puzzle size={18} />
                   </button>
                 );

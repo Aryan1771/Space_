@@ -1,5 +1,5 @@
 Space_ Browser End User License Agreement
-Version 0.2.0
+Version 0.2.1
 
 Please read this agreement before installing or using Space_.
 

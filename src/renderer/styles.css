@@ -558,6 +558,42 @@ body {
   min-width: 0;
 }
 
+.tab-island {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.tab-island-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 112px;
+  height: 25px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.68rem;
+}
+
+.tab-island-toggle span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-island-toggle small {
+  flex: none;
+  color: var(--text);
+}
+
 .tab-pill {
   display: flex;
   min-width: 176px;
@@ -608,6 +644,11 @@ body {
 .tab-pill.active {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 53, 94, 0.14));
   border-color: rgba(255, 255, 255, 0.24);
+}
+
+.tab-pill.selected {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .tab-title {

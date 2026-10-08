@@ -1,6 +1,6 @@
 {
   "name": "space-browser",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Space_ - Chromium browser with Opera GX inspired UI and Brave style Shields",
   "main": "dist/main/index.js",

@@ -91,6 +91,7 @@ export interface TabRecord {
   blocked?: { ads: number; trackers: number; scripts: number };
   workspaceId: string;
   islandId: string | null;
+  islandName?: string;
   isPinned: boolean;
   isMuted: boolean;
   isSplitParticipant: boolean;

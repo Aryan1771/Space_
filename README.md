@@ -58,7 +58,7 @@ npm run installer
 The installer is created at:
 
 ```powershell
-release\Space_-Setup-0.2.0.exe
+release\Space_-Setup-0.2.1.exe
 ```
 
 The installed desktop and Start Menu shortcuts launch `Space_` directly without opening a command prompt.
@@ -89,7 +89,7 @@ Signing workflow:
 4. Verify with:
 
 ```powershell
-Get-AuthenticodeSignature release\Space_-Setup-0.2.0.exe
+Get-AuthenticodeSignature release\Space_-Setup-0.2.1.exe
 ```
 
 If the status is `NotSigned`, SmartScreen or antivirus products such as McAfee can still warn or quarantine the installer because the file has no trusted publisher reputation.
@@ -99,7 +99,7 @@ If the status is `NotSigned`, SmartScreen or antivirus products such as McAfee c
 For friends or public downloads, upload the installer:
 
 ```powershell
-release\Space_-Setup-0.2.0.exe
+release\Space_-Setup-0.2.1.exe
 ```
 
 For a portable ZIP, compress the entire folder below and share that ZIP:
