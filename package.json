@@ -1,6 +1,6 @@
 {
   "name": "space-browser",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Space_ - Chromium browser with Opera GX inspired UI and Brave style Shields",
   "main": "dist/main/index.js",
@@ -16,6 +16,7 @@
     "pack": "npm run build && electron-builder --dir",
     "installer": "npm run build && electron-builder --win nsis --x64",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.renderer.json",
+    "test:privacy": "npm run build:main && node tests/privacy.test.cjs",
     "start": "electron ."
   },
   "dependencies": {
@@ -35,7 +36,7 @@
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
-    "electron": "^41.5.0",
+    "electron": "^41.10.7",
     "electron-builder": "^26.8.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
@@ -57,7 +58,6 @@
     ],
     "win": {
       "icon": "assets/app-256.ico",
-      "signAndEditExecutable": false,
       "target": [
         {
           "target": "nsis",

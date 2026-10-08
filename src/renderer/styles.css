@@ -1175,6 +1175,45 @@ body {
   grid-column: 1 / -1;
 }
 
+.mod-color-control,
+.mod-record {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 0;
+}
+
+.mod-color-control input[type="color"] {
+  width: 46px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.mod-record {
+  border-top: 1px solid var(--border);
+}
+
+.mod-record > div {
+  display: grid;
+  gap: 4px;
+}
+
+.mod-record span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mod-record label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .hero-panel,
 .glass-panel {
   border-radius: 24px;

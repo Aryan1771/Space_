@@ -2,21 +2,18 @@
 
 Space_ is a Chromium-based desktop browser built with Electron, React, Tailwind, and TypeScript. It combines an Opera GX-inspired UI with Brave-style Shields, GX customization surfaces, AI sidebar tools, and performance controls.
 
-## What Is Included
+## Implemented
 
-- Chromium-backed browsing through Electron.
-- Opera GX-style browser chrome with a neon sidebar, tab strip, address bar, start page, editable Speed Dial, widgets, and GX-style feature panels.
-- Brave-style Shields controls for ads, trackers, URL tracking cleanup, cookies, HTTPS upgrade, fingerprinting hardening, scripts, and consent blocking.
-- Local Space_ pages for settings, mods, history, bookmarks, downloads, and extensions.
-- Sidebar apps for local browser pages, notes, music, social apps, and AI tools.
-- Theme presets: GX Red, Neon Green, Electric Blue, Cyber Yellow, Dark Mode, and Light Mode.
-- GX Mods scaffold with local import/export for JSON mod manifests.
-- GX Control scaffold for background tab behavior, suspension policy, network presets, and animation levels.
-- Utilities for screenshots, cleaner actions, downloads, bookmarks, private tabs, auto Picture-in-Picture for playing videos, Wayback Machine, Speedreader, DevTools, Chrome Web Store browsing, and Load Unpacked developer extensions.
+- Electron Chromium pages, browser tabs and windows, and regular/private profiles.
+- Browser controls and local pages for settings, history, bookmarks, downloads, extensions, and mods.
+- Global and per-site ad/tracker filters using bundled EasyList and EasyPrivacy snapshots, plus per-site request counts in the native Shields menu.
+- Third-party cookie blocking based on registrable domains, optional all-cookie blocking, HTTPS upgrades, and tracking-parameter cleanup.
+- Six theme presets, a custom accent color, and validated local color mods.
+- Passkeys are left available to Chromium websites. Space_ does not supply an independent password vault.
 
 ## License / EULA
 
-Space_ is the property of SWD7. Its source is available under the custom terms in `installer/LICENSE.txt`. You may inspect, modify, and share Space_ for free, but you may not sell it, redistribute it for money, charge money for redistribution, rent it, sublicense it for money, or misrepresent yourself as SWD7 or as the official owner of Space_.
+Space_ is property of SWD7. Its source is available under the custom non-commercial terms in `installer/LICENSE.txt`. Free redistribution is allowed; selling Space_ or charging for its download or redistribution is prohibited. Because of this restriction, the license is source-available and is not OSI-approved open source.
 
 The installer displays the full EULA from `installer/LICENSE.txt`.
 
@@ -26,24 +23,13 @@ The feature table distinguishes implemented functionality from scaffolding. Tor,
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Chromium browsing | Working | Real Electron Chromium BrowserViews render standard websites. |
-| Tabs | Partial | New, close, restore, pin, drag reorder, detach, split view, and island metadata exist; collapsible island UI is still future work. |
-| Speed Dial | Working | Add, edit, delete, recolor, favicon tiles, hover actions. |
-| Local browser pages | Working | `space://settings`, `space://mods`, `space://history`, `space://bookmarks`, `space://downloads`, and `space://extensions`. |
-| Sidebar apps | Working | System, social, music, and AI apps open in resizable/pinnable panels. |
-| Themes/RGB | Working | Six presets with shared accent/glow tokens. |
-| GX Mods | Partial | Local JSON import/export works; online marketplace is not connected. |
-| GX Cleaner | Working | Cache, cookies, and storage clearing. |
-| GX Control | Partial | Tab sleep/throttling behavior controls exist; true OS CPU/RAM caps need a native helper. |
-| Ad/tracker blocking | Working | EasyList blocker and request interception. |
-| URL tracking protection | Working | Common tracking parameters are stripped before navigation. |
-| Cookie blocking | Working | Third-party cookies are blocked by default while first-party login cookies remain available. |
-| HTTPS upgrade | Working | HTTP requests upgrade to HTTPS where possible. |
-| Fingerprinting protection | Partial | Best-effort hardening only, not Brave-equivalent parity. |
-| Script blocking | Partial | Global/per-site shield model exists; fine-grained script UI is still being expanded. |
-| Extensions | Partial | Chrome Web Store opens; developer Load Unpacked extensions can be loaded for the session. |
-| Wayback/Speedreader/DevTools | Working/Partial | Wayback and DevTools are working; Speedreader is a basic reader CSS mode. |
-| Tor/VPN/Sync | Removed | Not included until real network and account infrastructure exists. |
+| Shields | Implemented | Bundled EasyList/EasyPrivacy rules, per-site toggles, cookies, HTTPS upgrade, script blocking, and request counters. Fingerprint randomization and consent popup removal are not implemented. |
+| Private windows | Implemented | Separate in-memory session per private window; history is not recorded, and its storage is cleared when closed. It does not provide network anonymity. |
+| Mods | Limited | Theme presets and validated JSON color mods are supported. Opera GX wallpaper, shader, audio, and marketplace mods are not implemented. |
+| Password manager | Not included | Passkeys use the platform in regular website tabs; Space_ does not manage or sync passwords. |
+| Performance controls | Limited | Chromium background throttling is enabled. OS CPU/RAM caps and bandwidth limiting are not implemented. |
+| Sign-in compatibility | Site-dependent | Removing spoofed browser identity and restoring WebAuthn avoids two app-created blockers. Some providers still reject embedded Chromium browsers; this cannot bypass a provider's policy. |
+| Remaining GX/Brave features | Partial | Not all Opera GX and Brave features listed above are implemented. Verify the individual controls before relying on them. |
 
 ## Browser Settings Baseline
 
@@ -72,7 +58,7 @@ npm run installer
 The installer is created at:
 
 ```powershell
-release\Space_-Setup-0.1.0.exe
+release\Space_-Setup-0.2.0.exe
 ```
 
 The installed desktop and Start Menu shortcuts launch `Space_` directly without opening a command prompt.
@@ -103,7 +89,7 @@ Signing workflow:
 4. Verify with:
 
 ```powershell
-Get-AuthenticodeSignature release\Space_-Setup-0.1.0.exe
+Get-AuthenticodeSignature release\Space_-Setup-0.2.0.exe
 ```
 
 If the status is `NotSigned`, SmartScreen or antivirus products such as McAfee can still warn or quarantine the installer because the file has no trusted publisher reputation.
@@ -113,7 +99,7 @@ If the status is `NotSigned`, SmartScreen or antivirus products such as McAfee c
 For friends or public downloads, upload the installer:
 
 ```powershell
-release\Space_-Setup-0.1.0.exe
+release\Space_-Setup-0.2.0.exe
 ```
 
 For a portable ZIP, compress the entire folder below and share that ZIP:

@@ -1,26 +1,25 @@
 Space_ Browser End User License Agreement
-Version 0.1.0
+Version 0.2.0
 
 Please read this agreement before installing or using Space_.
 
 1. Ownership and License
-Space_ is the property of SWD7. Space_ is provided as free and open-source software for personal, educational, and development use. You may install, inspect, study, modify, and share the software source and installer for free, subject to this agreement.
+Space_ and its original source code are the property of SWD7. SWD7 makes the source available at no charge under this license. This is a source-available, non-commercial license; it is not an OSI-approved open-source license. You may use, study, modify, and redistribute Space_ and its source at no charge if you keep this agreement and the notices with it.
 
 2. No Sale or Paid Redistribution
-Space_ must remain free. You may not sell Space_, redistribute Space_ for money, charge money for access to Space_, bundle Space_ into a paid product as a paid feature, rent it, sublicense it for money, or ask users to pay for redistributing, installing, downloading, or using Space_. You may not misrepresent yourself as SWD7 or as the official owner of Space_.
-In plain terms: Space_ is free, open-source software owned by SWD7 and cannot be redistributed/sold for money.
+You may not sell Space_, sell copies or access to it, charge for its download, installation, support, or redistribution, rent or sublicense it for a fee, or bundle it into a paid product. Free redistribution is permitted under section 1. You may not misrepresent yourself as SWD7 or as the official owner of Space_.
 
 3. Third-Party Technology
 Space_ is built with Electron, Chromium, React, Tailwind CSS, and other open-source libraries. Those components remain governed by their own licenses. Chromium powers the web rendering engine; Space_ is not Google Chrome and is not affiliated with Google. Design inspiration from Opera GX and Brave is used only as product direction; Space_ is not affiliated with Opera or Brave.
 
 4. Browser Features and Security
-Space_ includes experimental Shields, ad and tracker blocking, cookie controls, HTTPS upgrade behavior, and privacy-related settings. These features are provided on a best-effort basis and do not guarantee complete security, anonymity, malware protection, scam detection, or privacy. VPN, Tor, sync, and some extension features may be placeholders or future-work surfaces unless explicitly marked as available in the application.
+Space_ includes ad and tracker filters, site privacy controls, cookie controls, and HTTPS upgrade behavior. These features do not guarantee complete security, anonymity, malware protection, scam detection, or privacy. Space_ does not provide a VPN or Tor network. Fingerprint randomization and a built-in password vault are not provided.
 
 5. User Data
 Space_ stores settings, history, bookmarks, downloads metadata, mods metadata, and other browser data on your computer. Private browsing windows are intended to reduce local persistence, but they do not make you anonymous to websites, networks, internet providers, or other software on your device.
 
 6. Mods and Customization
-User-imported mods, themes, scripts, sounds, wallpapers, or icon packs are used at your own risk. Install mods only from sources you trust. Space_ is not responsible for damage, data loss, privacy issues, or undesirable behavior caused by third-party or user-created mods.
+Imported appearance mods are limited to validated color values. Do not treat third-party files or websites as trusted solely because Space_ can display them.
 
 7. No Warranty
 Space_ is provided "as is" without warranties of any kind, including warranties of merchantability, fitness for a particular purpose, non-infringement, availability, performance, compatibility, or security. Websites can change their compatibility requirements at any time.

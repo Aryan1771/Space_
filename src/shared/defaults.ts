@@ -4,7 +4,7 @@ export const defaultShieldConfig: ShieldConfig = {
   ads: true,
   trackers: true,
   cookies: "block-third-party",
-  fingerprinting: true,
+  fingerprinting: false,
   httpsUpgrade: true,
   scripts: false,
   consentBlock: true

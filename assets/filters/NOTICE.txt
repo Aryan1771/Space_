@@ -1,0 +1,14 @@
+EasyList and EasyPrivacy filter data
+
+These filter lists are maintained by the EasyList authors and are distributed
+under either the GNU General Public License version 3 or later, or the Creative
+Commons Attribution-ShareAlike 3.0 Unported license or later, at the recipient's
+option. Attribution: The EasyList authors (https://easylist.to/).
+
+The filter data is included in the Space_ installer. The license information
+and applicable license files are available at:
+https://easylist.to/pages/licence.html
+https://github.com/easylist/easylist
+
+EasyList: https://easylist.to/easylist/easylist.txt
+EasyPrivacy: https://easylist.to/easylist/easyprivacy.txt

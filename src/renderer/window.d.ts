@@ -11,7 +11,7 @@ declare global {
       navigate: (tabId: string, value: string) => Promise<unknown>;
       openSidebarApp: (appId: string) => Promise<unknown>;
       resizeSidebar: (width: number, pinned: boolean) => Promise<unknown>;
-      setUtilityDockOpen: (open: boolean) => Promise<unknown>;
+      setUtilityDockOpen: (open: boolean, width?: number) => Promise<unknown>;
       onFocusAddress: (listener: () => void) => () => void;
       windowControl: (action: "minimize" | "maximize" | "close") => Promise<unknown>;
       patchSettings: (patch: Record<string, unknown>) => Promise<unknown>;
