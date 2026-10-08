@@ -16,13 +16,13 @@ Space_ is a Chromium-based desktop browser built with Electron, React, Tailwind,
 
 ## License / EULA
 
-Space_ is the property of SWD7. It is free and open-source software for personal, educational, and development use. You may inspect, modify, and share Space_ for free, but you may not sell it, redistribute it for money, charge money for redistribution, rent it, sublicense it for money, or misrepresent yourself as SWD7 or as the official owner of Space_.
+Space_ is the property of SWD7. Its source is available under the custom terms in `installer/LICENSE.txt`. You may inspect, modify, and share Space_ for free, but you may not sell it, redistribute it for money, charge money for redistribution, rent it, sublicense it for money, or misrepresent yourself as SWD7 or as the official owner of Space_.
 
 The installer displays the full EULA from `installer/LICENSE.txt`.
 
 ## Feature Coverage
 
-Space_ does not fake server-backed or OS-kernel features. Tor, VPN, cross-device sync, hard RAM caps, hard CPU caps, and remote mod marketplace are intentionally not shown as working features until real infrastructure exists.
+The feature table distinguishes implemented functionality from scaffolding. Tor, VPN, cross-device sync, hard RAM caps, hard CPU caps, and remote mod marketplace are intentionally not shown as working features until real infrastructure exists.
 
 | Area | Status | Notes |
 | --- | --- | --- |
@@ -91,13 +91,13 @@ Space_ supports the normal daily browser shortcuts:
 - `Ctrl+U` opens view source, `Ctrl+P` prints, `Ctrl+S` saves the current page, `F11` toggles fullscreen.
 - Middle-click a tab to close it. Middle-click a normal page link to open it in a new tab.
 
-## Code Signing
+## Code signing
 
-The installer build is ready for Windows Authenticode signing, but a trusted signature requires a real code-signing certificate issued to the publisher. A self-signed certificate will not build SmartScreen or antivirus trust for friends and public downloads.
+The installer build is ready for Windows Authenticode signing, but a trusted signature requires a real code-signing certificate issued to the publisher. A self-signed certificate will not build SmartScreen or antivirus trust for public distribution.
 
-Recommended path:
+Signing workflow:
 
-1. Buy an OV or EV Windows code-signing certificate for `SWD7` from a trusted CA.
+1. Obtain a Windows code-signing certificate for the publisher through an appropriate certificate provider.
 2. Configure Electron Builder signing secrets with `CSC_LINK` and `CSC_KEY_PASSWORD`, or install the certificate in the Windows certificate store.
 3. Rebuild with `npm run installer`.
 4. Verify with:
