@@ -87,6 +87,7 @@ export interface TabRecord {
   loading: boolean;
   private: boolean;
   shieldState: ShieldConfig;
+  blocked?: { ads: number; trackers: number; scripts: number };
   workspaceId: string;
   islandId: string | null;
   isPinned: boolean;

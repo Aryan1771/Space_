@@ -1,7 +1,8 @@
 import { app, BrowserView, BrowserWindow, dialog, ipcMain, Menu, session, shell } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { ElectronBlocker } from "@cliqz/adblocker-electron";
+import { ElectronBlocker, Request } from "@cliqz/adblocker-electron";
+import { canUpgrade, shouldBlockCookies } from "./privacy";
 import { parse as parseDomain } from "tldts";
 import { appStore } from "./store";
 import { IPC_CHANNELS } from "../shared/ipc";
@@ -70,7 +71,7 @@ const authCookieHosts = [
   "office.com"
 ];
 const forceDarkStyle = `
-  :root, html.space-force-dark {
+  html.space-force-dark {
     color-scheme: dark !important;
     background: #05070c !important;
   }
@@ -113,6 +114,23 @@ const forceDarkStyle = `
 `;
 
 export class SpaceBrowserApp {
+  private static controllers = new Set<SpaceBrowserApp>();
+  private static channels = new Set<string>();
+  private handlers = new Map<string, (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any>();
+  private privateWindow = false;
+  private privatePartition = `space-private-${crypto.randomUUID()}`;
+
+  private handleIpc(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any) {
+    this.handlers.set(channel, handler);
+    if (SpaceBrowserApp.channels.has(channel)) return;
+    SpaceBrowserApp.channels.add(channel);
+    ipcMain.handle(channel, (event, ...args) => {
+      const owner = [...SpaceBrowserApp.controllers].find(controller =>
+        controller.mainWindow?.webContents === event.sender);
+      if (!owner || event.senderFrame !== event.sender.mainFrame) throw new Error("Untrusted IPC sender");
+      return owner.handlers.get(channel)?.(event, ...args);
+    });
+  }
   private mainWindow: BrowserWindow | null = null;
   private sidebarView: BrowserView | null = null;
   private tabs = new Map<string, BrowserTab>();
@@ -125,6 +143,9 @@ export class SpaceBrowserApp {
   private activeSidebarAppId: string | null = null;
   private utilityDockOpen = false;
   private blocker: ElectronBlocker | null = null;
+  private trackerBlocker: ElectronBlocker | null = null;
+  private readonly downloadSessions = new WeakSet<Electron.Session>();
+  private snapshotTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly rendererUrl = process.env.VITE_DEV_SERVER_URL;
   private readonly configuredSessions = new WeakSet<Electron.Session>();
 
@@ -142,9 +163,11 @@ export class SpaceBrowserApp {
 
   private async loadBlocker() {
     try {
-      this.blocker = await ElectronBlocker.fromLists(fetch, [adBlockLists]);
-    } catch {
-      this.blocker = null;
+      const directory = path.join(app.getAppPath(), "assets", "filters");
+      this.blocker = ElectronBlocker.parse(await fs.readFile(path.join(directory, "easylist.txt"), "utf8"));
+      this.trackerBlocker = ElectronBlocker.parse(await fs.readFile(path.join(directory, "easyprivacy.txt"), "utf8"));
+    } catch (error) {
+      throw new Error(`Bundled privacy filters could not be loaded: ${String(error)}`);
     }
   }
 
@@ -153,6 +176,7 @@ export class SpaceBrowserApp {
   }
 
   private createWindow() {
+    SpaceBrowserApp.controllers.add(this);
     this.mainWindow = new BrowserWindow({
       width: 1600,
       height: 980,
@@ -176,6 +200,12 @@ export class SpaceBrowserApp {
     this.mainWindow.on("unmaximize", () => this.publishSnapshot());
     this.mainWindow.on("restore", () => this.publishSnapshot());
     this.mainWindow.on("closed", () => {
+      for (const tab of this.tabs.values()) tab.view.webContents.close();
+      this.sidebarView?.webContents.close();
+      this.tabs.clear();
+      if (this.snapshotTimer) clearTimeout(this.snapshotTimer);
+      SpaceBrowserApp.controllers.delete(this);
+      if (this.privateWindow) void session.fromPartition(this.privatePartition).clearStorageData();
       this.mainWindow = null;
     });
     this.mainWindow.webContents.on("page-title-updated", (event) => {
@@ -210,27 +240,27 @@ export class SpaceBrowserApp {
   }
 
   private registerIpc() {
-    ipcMain.handle(IPC_CHANNELS.browserSnapshot, () => this.snapshot());
-    ipcMain.handle(IPC_CHANNELS.tabAction, async (_event, { action, payload }) => this.handleTabAction(action, payload ?? {}));
-    ipcMain.handle(IPC_CHANNELS.tabReorder, async (_event, { tabId, targetTabId }) => {
+    this.handleIpc(IPC_CHANNELS.browserSnapshot, () => this.snapshot());
+    this.handleIpc(IPC_CHANNELS.tabAction, async (_event, { action, payload }) => this.handleTabAction(action, payload ?? {}));
+    this.handleIpc(IPC_CHANNELS.tabReorder, async (_event, { tabId, targetTabId }) => {
       if (typeof tabId === "string" && typeof targetTabId === "string") this.reorderTab(tabId, targetTabId);
     });
-    ipcMain.handle(IPC_CHANNELS.navigationHistory, async (_event, { tabId }) => (typeof tabId === "string" ? this.getNavigationHistory(tabId) : []));
-    ipcMain.handle(IPC_CHANNELS.navigate, async (_event, { tabId, value }) => this.navigate(tabId, value));
-    ipcMain.handle(IPC_CHANNELS.sidebarOpen, async (_event, { appId }) => this.openSidebarApp(appId));
-    ipcMain.handle(IPC_CHANNELS.sidebarResize, async (_event, { width, pinned }) => {
+    this.handleIpc(IPC_CHANNELS.navigationHistory, async (_event, { tabId }) => (typeof tabId === "string" ? this.getNavigationHistory(tabId) : []));
+    this.handleIpc(IPC_CHANNELS.navigate, async (_event, { tabId, value }) => this.navigate(tabId, value));
+    this.handleIpc(IPC_CHANNELS.sidebarOpen, async (_event, { appId }) => this.openSidebarApp(appId));
+    this.handleIpc(IPC_CHANNELS.sidebarResize, async (_event, { width, pinned }) => {
       this.sidebarWidth = this.clampSidebarWidth(width);
       this.sidebarPinned = pinned;
       this.layoutViews();
       this.publishSnapshot();
     });
-    ipcMain.handle(IPC_CHANNELS.uiSetUtilityDock, async (_event, { open }) => {
+    this.handleIpc(IPC_CHANNELS.uiSetUtilityDock, async (_event, { open }) => {
       this.utilityDockOpen = Boolean(open);
       this.layoutViews();
       this.publishSnapshot();
     });
-    ipcMain.handle(IPC_CHANNELS.windowControl, async (_event, { action }) => this.controlWindow(action));
-    ipcMain.handle(IPC_CHANNELS.settingsPatch, async (_event, patch) => {
+    this.handleIpc(IPC_CHANNELS.windowControl, async (_event, { action }) => this.controlWindow(action));
+    this.handleIpc(IPC_CHANNELS.settingsPatch, async (_event, patch) => {
       const previous = this.getSettings();
       const settings = { ...previous, ...patch } as AppSettings;
       appStore.set("settings", settings);
@@ -242,23 +272,23 @@ export class SpaceBrowserApp {
       }
       this.publishSnapshot();
     });
-    ipcMain.handle(IPC_CHANNELS.shieldSetGlobal, async (_event, patch) => {
+    this.handleIpc(IPC_CHANNELS.shieldSetGlobal, async (_event, patch) => {
       const settings = this.getSettings();
       appStore.set("settings", { ...settings, shieldDefaults: { ...settings.shieldDefaults, ...patch } });
       this.publishSnapshot();
     });
-    ipcMain.handle(IPC_CHANNELS.shieldSetSite, async (_event, rule: SiteShieldRule) => {
+    this.handleIpc(IPC_CHANNELS.shieldSetSite, async (_event, rule: SiteShieldRule) => {
       const settings = this.getSettings();
       const rest = settings.siteShieldRules.filter((entry: SiteShieldRule) => entry.hostname !== rule.hostname);
       appStore.set("settings", { ...settings, siteShieldRules: [...rest, rule] });
       this.publishSnapshot();
     });
-    ipcMain.handle(IPC_CHANNELS.bookmarksToggle, async (_event, { tabId }) => this.toggleBookmark(tabId));
-    ipcMain.handle(IPC_CHANNELS.historyClear, async () => {
+    this.handleIpc(IPC_CHANNELS.bookmarksToggle, async (_event, { tabId }) => this.toggleBookmark(tabId));
+    this.handleIpc(IPC_CHANNELS.historyClear, async () => {
       appStore.set("history", []);
       this.publishSnapshot();
     });
-    ipcMain.handle(IPC_CHANNELS.historyDelete, async (_event, { id }) => {
+    this.handleIpc(IPC_CHANNELS.historyDelete, async (_event, { id }) => {
       const history = appStore.get("history") ?? [];
       appStore.set(
         "history",
@@ -266,20 +296,20 @@ export class SpaceBrowserApp {
       );
       this.publishSnapshot();
     });
-    ipcMain.handle(IPC_CHANNELS.modsImport, async () => this.importMods());
-    ipcMain.handle(IPC_CHANNELS.modsExport, async () => this.exportMods());
-    ipcMain.handle(IPC_CHANNELS.modsToggle, async (_event, { modId, enabled }) => {
+    this.handleIpc(IPC_CHANNELS.modsImport, async () => this.importMods());
+    this.handleIpc(IPC_CHANNELS.modsExport, async () => this.exportMods());
+    this.handleIpc(IPC_CHANNELS.modsToggle, async (_event, { modId, enabled }) => {
       const mods = (appStore.get("mods") ?? []).map((mod: ModManifest & { enabled: boolean }) => (mod.id === modId ? { ...mod, enabled } : mod));
       appStore.set("mods", mods);
       this.publishSnapshot();
     });
-    ipcMain.handle(IPC_CHANNELS.aiRun, async (_event, payload: AiActionPayload) => this.runAiAction(payload));
-    ipcMain.handle(IPC_CHANNELS.pipRequest, async (_event, { tabId }) => this.requestPictureInPicture(typeof tabId === "string" ? tabId : undefined));
-    ipcMain.handle(IPC_CHANNELS.extensionsList, async () => this.listExtensions());
-    ipcMain.handle(IPC_CHANNELS.extensionLoadUnpacked, async () => this.loadUnpackedExtension());
-    ipcMain.handle(IPC_CHANNELS.extensionOpenStore, async (_event, { tabId }) => this.openChromeWebStore(typeof tabId === "string" ? tabId : undefined));
-    ipcMain.handle(IPC_CHANNELS.screenshot, async () => this.takeScreenshot());
-    ipcMain.handle(IPC_CHANNELS.cleaner, async (_event, targets: string[]) => this.runCleaner(targets));
+    this.handleIpc(IPC_CHANNELS.aiRun, async (_event, payload: AiActionPayload) => this.runAiAction(payload));
+    this.handleIpc(IPC_CHANNELS.pipRequest, async (_event, { tabId }) => this.requestPictureInPicture(typeof tabId === "string" ? tabId : undefined));
+    this.handleIpc(IPC_CHANNELS.extensionsList, async () => this.listExtensions());
+    this.handleIpc(IPC_CHANNELS.extensionLoadUnpacked, async () => this.loadUnpackedExtension());
+    this.handleIpc(IPC_CHANNELS.extensionOpenStore, async (_event, { tabId }) => this.openChromeWebStore(typeof tabId === "string" ? tabId : undefined));
+    this.handleIpc(IPC_CHANNELS.screenshot, async () => this.takeScreenshot());
+    this.handleIpc(IPC_CHANNELS.cleaner, async (_event, targets: string[]) => this.runCleaner(targets));
   }
 
   private getSettings() {
@@ -305,14 +335,15 @@ export class SpaceBrowserApp {
     if (!storedApps) return defaultSettings.sidebarApps;
     const known = new Set(sidebarApps.map((entry) => entry.id));
     const cleaned = storedApps.filter((id) => known.has(id));
-    return cleaned.includes("spotify") ? cleaned : [...cleaned, "spotify"];
+    return cleaned;
   }
 
   private createPartition(isPrivate: boolean) {
-    return isPrivate ? `space-private-${Date.now()}-${Math.random()}` : `persist:space-default`;
+    return isPrivate ? this.privatePartition : "persist:space-default";
   }
 
   private async createTab(input: { url: string; private: boolean; pinned?: boolean; split?: boolean }) {
+    input.private = this.privateWindow || input.private;
     const previousActive = this.activeTabId ? this.tabs.get(this.activeTabId) ?? null : null;
     const id = `tab-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const partition = this.createPartition(input.private);
@@ -323,14 +354,10 @@ export class SpaceBrowserApp {
       webPreferences: {
         partition,
         sandbox: true,
-        backgroundThrottling: this.getSettings().performanceProfile.backgroundTabPolicy !== "aggressive"
+        backgroundThrottling: true
       }
     });
     view.webContents.setUserAgent(chromeLikeUserAgent);
-
-    if (this.blocker) {
-      this.blocker.enableBlockingInSession(tabSession);
-    }
 
     const shieldState = this.resolveShieldState(input.url);
     const record: TabRecord = {
@@ -340,6 +367,7 @@ export class SpaceBrowserApp {
       loading: true,
       private: input.private,
       shieldState,
+      blocked: { ads: 0, trackers: 0, scripts: 0 },
       workspaceId: "primary",
       islandId: parseDomain(input.url).domain ?? "general",
       isPinned: Boolean(input.pinned),
@@ -405,7 +433,9 @@ export class SpaceBrowserApp {
       this.publishSnapshot();
     });
     wc.on("found-in-page", () => this.publishSnapshot());
-    wc.setBackgroundThrottling(this.getSettings().performanceProfile.backgroundTabPolicy !== "aggressive");
+    wc.setBackgroundThrottling(true);
+    if (this.downloadSessions.has(tabSession)) return;
+    this.downloadSessions.add(tabSession);
     tabSession.on("will-download", (_event, item) => {
       const entry: DownloadRecord = {
         id: `${Date.now()}`,
@@ -720,20 +750,35 @@ export class SpaceBrowserApp {
   private configureSession(tabSession: Electron.Session, options: { sidebar?: boolean } = {}) {
     if (this.configuredSessions.has(tabSession)) return;
     this.configuredSessions.add(tabSession);
-    const settings = this.getSettings();
-    this.registerBrowserSpoofPreload(tabSession);
+    const pageFor = (details: Electron.OnBeforeRequestListenerDetails | Electron.OnBeforeSendHeadersListenerDetails) =>
+      details.resourceType === "mainFrame" ? details.url : details.webContents?.getURL() || details.url;
     tabSession.webRequest.onBeforeRequest((details, callback) => {
-      const merged = this.resolveShieldState(details.url);
-      if (merged.httpsUpgrade && details.url.startsWith("http://")) {
+      const pageUrl = pageFor(details);
+      const merged = this.resolveShieldState(pageUrl);
+      const tab = [...this.tabs.values()].find(entry => entry.view.webContents.id === details.webContentsId);
+      if (details.resourceType === "mainFrame" && tab) tab.record.blocked = { ads: 0, trackers: 0, scripts: 0 };
+      if (merged.httpsUpgrade && details.resourceType === "mainFrame" && canUpgrade(details.url)) {
         callback({ redirectURL: details.url.replace("http://", "https://") });
         return;
       }
-      const cleanedUrl = merged.trackers ? this.stripTrackingParams(details.url) : details.url;
+      const cleanedUrl = merged.trackers && details.resourceType === "mainFrame" ? this.stripTrackingParams(details.url) : details.url;
       if (cleanedUrl !== details.url) {
         callback({ redirectURL: cleanedUrl });
         return;
       }
-      if ((merged.ads || merged.trackers) && blockedHosts.some((host) => details.url.includes(host))) {
+      const request = Request.fromRawDetails({ url: details.url, sourceUrl: pageUrl, type: details.resourceType });
+      const reason = merged.scripts && details.resourceType === "script" ? "scripts"
+        : merged.trackers && this.trackerBlocker?.match(request).match ? "trackers"
+        : merged.ads && this.blocker?.match(request).match ? "ads" : null;
+      if (reason) {
+        if (tab) {
+          tab.record.blocked ??= { ads: 0, trackers: 0, scripts: 0 };
+          tab.record.blocked[reason]++;
+          if (!this.snapshotTimer) this.snapshotTimer = setTimeout(() => {
+            this.snapshotTimer = null;
+            this.publishSnapshot();
+          }, 150);
+        }
         callback({ cancel: true });
         return;
       }
@@ -741,32 +786,34 @@ export class SpaceBrowserApp {
     });
 
     tabSession.webRequest.onBeforeSendHeaders((details, callback) => {
-      const merged = this.resolveShieldState(details.url);
-      details.requestHeaders["User-Agent"] = chromeLikeUserAgent;
-      Object.assign(details.requestHeaders, chromeClientHints);
+      const pageUrl = pageFor(details);
+      const merged = this.resolveShieldState(pageUrl);
       delete details.requestHeaders["X-Client-Data"];
-      const requestContext = details as Electron.OnBeforeSendHeadersListenerDetails & { initiator?: string; referrer?: string };
-      if (this.shouldStripCookies(details.url, requestContext.initiator ?? requestContext.referrer, merged.cookies)) {
-        delete details.requestHeaders.Cookie;
+      details.requestHeaders["Sec-GPC"] = "1";
+      if (shouldBlockCookies(details.url, pageUrl, merged.cookies)) {
+        for (const key of Object.keys(details.requestHeaders)) if (key.toLowerCase() === "cookie") delete details.requestHeaders[key];
       }
       callback({ requestHeaders: details.requestHeaders });
     });
 
-    tabSession.setPermissionRequestHandler((_wc, permission, callback) => {
-      if (options.sidebar && permission === "media") {
-        callback(false);
-        return;
+    tabSession.webRequest.onHeadersReceived((details, callback) => {
+      const pageUrl = details.resourceType === "mainFrame" ? details.url : details.webContents?.getURL() || details.url;
+      const headers = { ...details.responseHeaders };
+      if (shouldBlockCookies(details.url, pageUrl, this.resolveShieldState(pageUrl).cookies)) {
+        for (const key of Object.keys(headers)) if (key.toLowerCase() === "set-cookie") delete headers[key];
       }
-      callback(permission !== "notifications");
+      callback({ responseHeaders: headers });
     });
-    tabSession.setPermissionCheckHandler((_wc, permission) => {
-      if (options.sidebar && permission === "media") return false;
-      return permission !== "notifications";
+    tabSession.setPermissionRequestHandler(async (wc, permission, callback, details) => {
+      if (!wc || wc.isDestroyed() || !["media", "geolocation", "notifications", "fullscreen"].includes(permission)) return callback(false);
+      if (permission === "fullscreen") return callback(true);
+      const origin = details.requestingUrl || wc.getURL();
+      if (!origin.startsWith("https://")) return callback(false);
+      const result = await dialog.showMessageBox({ type: "question", title: "Site permission",
+        message: `${this.hostFor(origin)} wants to use ${permission}.`, buttons: ["Block", "Allow once"], defaultId: 0, cancelId: 0 });
+      callback(result.response === 1 && !wc.isDestroyed());
     });
-
-    if (settings.performanceProfile.throttleNetworkPreset !== "off") {
-      // Scaffolding for devtools-network throttling; policy is reflected in UI/state.
-    }
+    tabSession.setPermissionCheckHandler((_wc, permission) => permission === "fullscreen");
   }
 
   private registerBrowserSpoofPreload(tabSession: Electron.Session) {
@@ -941,13 +988,14 @@ export class SpaceBrowserApp {
     if (!tab) return;
     const idsBeforeClose = [...this.tabs.keys()];
     const closingIndex = idsBeforeClose.indexOf(tabId);
-    this.closedTabs.unshift({ ...tab.record });
+    if (!tab.record.private) this.closedTabs.unshift({ ...tab.record });
+    this.closedTabs = this.closedTabs.slice(0, 25);
     this.mainWindow?.removeBrowserView(tab.view);
     tab.view.webContents.close();
     this.tabs.delete(tabId);
     const remaining = [...this.tabs.keys()];
     const next = remaining[Math.min(Math.max(closingIndex, 0), remaining.length - 1)] ?? null;
-    this.activeTabId = next;
+    if (this.activeTabId === tabId) this.activeTabId = next;
     if (!next) {
       void this.createTab({ url: "space://start", private: false });
       return;
@@ -1149,49 +1197,17 @@ export class SpaceBrowserApp {
     const url = tab.record.url;
     const title = tab.record.title;
     this.closeTab(tabId);
-    this.openDetachedWindow(url, title);
+    this.openDetachedWindow(url, title, tab.record.private);
   }
 
-  private openDetachedWindow(url: string, title: string, isPrivate = false) {
-    const partition = isPrivate ? `space-private-window-${Date.now()}-${Math.random().toString(16).slice(2, 8)}` : "persist:space-default";
-    const detachedSession = session.fromPartition(partition, { cache: !isPrivate });
-    this.configureSession(detachedSession);
-    const detachedWindow = new BrowserWindow({
-      width: 1180,
-      height: 780,
-      minWidth: 900,
-      minHeight: 620,
-      frame: false,
-      title: isPrivate ? "Space_ - Private Window" : `Space_ - ${title}`,
-      backgroundColor: "#08070d",
-      icon: this.appIconPath()
-    });
-    const detachedView = new BrowserView({
-      webPreferences: {
-        partition,
-        sandbox: true
-      }
-    });
-    detachedView.webContents.setUserAgent(chromeLikeUserAgent);
-    detachedWindow.addBrowserView(detachedView);
-    const layout = () => {
-      const [width, height] = detachedWindow.getContentSize();
-      detachedView.setBounds({ x: 0, y: 0, width, height });
-      detachedView.setAutoResize({ width: true, height: true });
-    };
-    detachedWindow.on("resize", layout);
-    layout();
-    detachedView.webContents.setWindowOpenHandler((details) => {
-      this.openDetachedWindow(details.url, "New Window");
-      return { action: "deny" };
-    });
-    detachedView.webContents.on("did-stop-loading", () => {
-      void this.applyForceDarkToContents(detachedView.webContents, this.resolveForceDarkForUrl(detachedView.webContents.getURL()));
-    });
-    detachedView.webContents.on("context-menu", (_event, params) => {
-      this.showWebContentsContextMenu(detachedView.webContents, detachedView.webContents.getURL(), isPrivate, params);
-    });
-    void detachedView.webContents.loadURL(this.isInternalStartUrl(url) ? "https://www.google.com" : this.normalizeUrl(url));
+  private openDetachedWindow(url: string, _title: string, isPrivate = false) {
+    const controller = new SpaceBrowserApp();
+    controller.privateWindow = isPrivate;
+    controller.blocker = this.blocker;
+    controller.trackerBlocker = this.trackerBlocker;
+    controller.createWindow();
+    controller.registerIpc();
+    void controller.createTab({ url, private: isPrivate });
   }
 
   private appIconPath() {
@@ -1222,7 +1238,7 @@ export class SpaceBrowserApp {
     if (!this.sidebarView) {
       this.sidebarView = new BrowserView({
         webPreferences: {
-          partition: "persist:space-sidebar",
+          partition: this.privateWindow ? this.privatePartition : "persist:space-sidebar",
           sandbox: true
         }
       });
@@ -1447,7 +1463,7 @@ export class SpaceBrowserApp {
       tab.view.setBounds({ x: contentX, y: chromeHeight, width: browserWidth, height: height - chromeHeight });
       tab.view.webContents.setAudioMuted(tab.record.isMuted);
       tab.view.setAutoResize({ width: true, height: true });
-      tab.view.webContents.setBackgroundThrottling(this.getSettings().performanceProfile.backgroundTabPolicy === "balanced");
+      tab.view.webContents.setBackgroundThrottling(true);
       tab.view.webContents.setVisualZoomLevelLimits(0.25, 5).catch(() => {});
       if (!shouldShow) {
         tab.view.setBounds({ x: -20000, y: -20000, width: 10, height: 10 });
@@ -1456,7 +1472,7 @@ export class SpaceBrowserApp {
       }
     }
 
-    if (splitTabs.length >= 2) {
+    if (showBrowserSurface && splitTabs.length >= 2) {
       const visible = splitTabs.slice(0, 2);
       const splitWidth = Math.floor(browserWidth / 2);
       visible[0].view.setBounds({ x: contentX, y: chromeHeight, width: splitWidth, height: height - chromeHeight });
@@ -1631,8 +1647,7 @@ export class SpaceBrowserApp {
     for (const [id, tab] of this.tabs) {
       if (id === tabId) continue;
       if (profile.backgroundTabPolicy === "aggressive" && now - tab.record.lastActiveAt > profile.suspendThresholdMinutes * 60_000) {
-        tab.record.isSuspended = true;
-        tab.view.webContents.setBackgroundThrottling(false);
+        tab.view.webContents.setBackgroundThrottling(true);
       }
     }
   }
@@ -1649,10 +1664,10 @@ export class SpaceBrowserApp {
   private snapshot(): BrowserStateSnapshot {
     return {
       tabs: [...this.tabs.values()]
-        .map((entry) => ({ ...entry.record })),
+        .map((entry) => ({ ...entry.record, shieldState: this.resolveShieldState(entry.record.url) })),
       activeTabId: this.activeTabId,
       bookmarks: appStore.get("bookmarks") ?? [],
-      history: appStore.get("history") ?? [],
+      history: this.privateWindow ? [] : appStore.get("history") ?? [],
       downloads: this.downloads,
       settings: this.getSettings(),
       sidebarOpen: this.sidebarOpen,
