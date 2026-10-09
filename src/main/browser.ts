@@ -458,12 +458,16 @@ export class SpaceBrowserApp {
     return userAgent.replace(/\s+Space_\/[\w.-]+/g, "").replace(/\s+Electron\/[\w.-]+/g, "");
   }
 
+  private isExplicitPopup(features: string) {
+    return /(?:^|[,\s])(width|height|left|top|popup)(?:\s*=|\s*(?:,|$))/i.test(features);
+  }
+
   private bindViewEvents(tab: BrowserTab, tabSession: Electron.Session) {
     const wc = tab.view.webContents;
     this.bindBrowserShortcuts(wc);
     wc.on("focus", () => this.collapseTransientOverlays());
     wc.setWindowOpenHandler((details) => {
-      if (details.disposition === "new-window" || details.features.trim()) {
+      if (this.isExplicitPopup(details.features)) {
         return {
           action: "allow",
           overrideBrowserWindowOptions: {
@@ -1411,7 +1415,7 @@ export class SpaceBrowserApp {
         this.showWebContentsContextMenu(this.sidebarView.webContents, this.sidebarView.webContents.getURL(), false, params);
       });
       this.sidebarView.webContents.setWindowOpenHandler((details) => {
-        if (details.disposition === "new-window" || details.features.trim()) {
+        if (this.isExplicitPopup(details.features)) {
           return {
             action: "allow",
             overrideBrowserWindowOptions: {
@@ -1427,7 +1431,7 @@ export class SpaceBrowserApp {
             }
           };
         }
-        void this.createTab({ url: details.url, private: false });
+        void this.createTab({ url: details.url, private: this.privateWindow });
         return { action: "deny" };
       });
       this.mainWindow.addBrowserView(this.sidebarView);
