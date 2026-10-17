@@ -6,7 +6,7 @@ export function isThirdParty(requestUrl: string, pageUrl: string): boolean {
     const page = new URL(pageUrl).hostname;
     return (parse(request, { allowPrivateDomains: true }).domain ?? request) !==
       (parse(page, { allowPrivateDomains: true }).domain ?? page);
-  } catch { return false; }
+  } catch { return true; }
 }
 
 export function shouldBlockCookies(requestUrl: string, pageUrl: string, policy: string): boolean {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft,
@@ -9,14 +10,16 @@ import {
   Bookmark,
   Brush,
   CircleUserRound,
+  ChevronDown,
+  ChevronRight,
   Clock3,
   Code2,
   Cookie,
   Cpu,
   Download,
   ExternalLink,
+  FolderPlus,
   Eye,
-  Fingerprint,
   Gamepad2,
   History,
   Home,
@@ -75,6 +78,7 @@ const emptyState: BrowserStateSnapshot = {
   bookmarks: [],
   history: [],
   downloads: [],
+  mods: [],
   settings: {
     theme: "gx-red",
     sidebarApps: [],
@@ -84,7 +88,7 @@ const emptyState: BrowserStateSnapshot = {
       ads: true,
       trackers: true,
       cookies: "block-third-party",
-      fingerprinting: true,
+      fingerprinting: false,
       httpsUpgrade: true,
       scripts: false,
       consentBlock: true
@@ -106,6 +110,7 @@ const emptyState: BrowserStateSnapshot = {
     notes: [],
     hiddenSpeedDialIds: [],
     pinnedExtensions: [],
+    accentColor: "",
     speedDial: []
   },
   sidebarOpen: false,
@@ -133,6 +138,17 @@ const themeOptions: Array<{ id: ThemeId; name: string; hint: string }> = [
   { id: "dark", name: "Dark Mode", hint: "Quiet focus" },
   { id: "light", name: "Light Mode", hint: "Daylight chrome" }
 ];
+
+function themeAccent(theme: ThemeId) {
+  return {
+    "gx-red": "#ff355e",
+    "neon-green": "#3bf87f",
+    "electric-blue": "#3f8cff",
+    "cyber-yellow": "#ffd449",
+    dark: "#9eafff",
+    light: "#454dff"
+  }[theme];
+}
 
 const settingsSections = [
   "Appearance",
@@ -208,6 +224,8 @@ export function App() {
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [resizingUtility, setResizingUtility] = useState(false);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const [selectedTabIds, setSelectedTabIds] = useState<string[]>([]);
+  const [collapsedIslands, setCollapsedIslands] = useState<Record<string, boolean>>({});
   const [speedDialDraft, setSpeedDialDraft] = useState<SpeedDialDraft | null>(null);
   const [weather, setWeather] = useState<WeatherState>({ status: "idle", label: "Use location" });
   const [extensionsOpen, setExtensionsOpen] = useState(false);
@@ -338,12 +356,14 @@ export function App() {
 
   useEffect(() => {
     if (!resizingSidebar) return;
+    void window.space.beginSidebarResize();
     function handleMove(event: MouseEvent) {
       const nextWidth = Math.max(360, Math.min(Math.max(360, window.innerWidth - 220), event.clientX - 64));
       setSidebarWidth(nextWidth);
       void window.space.resizeSidebar(nextWidth, sidebarPinnedRef.current);
     }
     function stopResize() {
+      void window.space.endSidebarResize();
       setResizingSidebar(false);
     }
     window.addEventListener("mousemove", handleMove);
@@ -360,6 +380,7 @@ export function App() {
       const maxWidth = Math.min(680, Math.max(340, window.innerWidth - 112));
       const nextWidth = Math.max(320, Math.min(maxWidth, window.innerWidth - event.clientX - 14));
       setUtilityWidth(nextWidth);
+      if (snapshot.utilityDockOpen) void window.space.setUtilityDockOpen(true, nextWidth);
     }
     function stopResize() {
       setResizingUtility(false);
@@ -370,7 +391,7 @@ export function App() {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", stopResize);
     };
-  }, [resizingUtility]);
+  }, [resizingUtility, snapshot.utilityDockOpen]);
 
   useEffect(() => {
     function closeFloatingPanels(event: PointerEvent) {
@@ -448,6 +469,14 @@ export function App() {
     if (!value) return snapshot.tabs;
     return snapshot.tabs.filter((tab) => `${tab.title} ${tab.url}`.toLowerCase().includes(value));
   }, [snapshot.tabs, tabSearch]);
+  const tabIslands = useMemo(() => {
+    const groups = new Map<string, TabRecord[]>();
+    for (const tab of snapshot.tabs) {
+      const id = tab.islandId || tab.id;
+      groups.set(id, [...(groups.get(id) ?? []), tab]);
+    }
+    return [...groups.entries()];
+  }, [snapshot.tabs]);
 
   const activeSidebarApp = sidebarApps.find((app) => app.id === snapshot.activeSidebarAppId) ?? null;
   const sidebarAppGroups = useMemo(
@@ -516,7 +545,7 @@ export function App() {
   async function toggleUtilityPanel(panel: UtilityPanel) {
     const shouldOpen = !(snapshot.utilityDockOpen && activeUtilityPanel === panel);
     setActiveUtilityPanel(panel);
-    await window.space.setUtilityDockOpen(shouldOpen);
+    await window.space.setUtilityDockOpen(shouldOpen, utilityWidth);
   }
 
   async function toggleExtensionsPopover() {
@@ -585,7 +614,14 @@ export function App() {
   }
 
   return (
-    <div className={`app-shell ${themeClassMap[snapshot.settings.theme]}`}>
+    <div
+      className={`app-shell ${themeClassMap[snapshot.settings.theme]}`}
+      style={{
+        "--accent": snapshot.settings.accentColor || [...(snapshot.mods ?? [])].reverse().find(mod => mod.enabled)?.themeTokens?.accent || themeAccent(snapshot.settings.theme),
+        "--accent-2": [...(snapshot.mods ?? [])].reverse().find(mod => mod.enabled)?.themeTokens?.accentAlt || "var(--accent)",
+        "--bg": [...(snapshot.mods ?? [])].reverse().find(mod => mod.enabled)?.themeTokens?.bg || "#09070d"
+      } as CSSProperties}
+    >
       <div className="backdrop-grid" />
       <aside className="space-sidebar">
         <div className="brand-lockup">
@@ -681,12 +717,31 @@ export function App() {
 
           <div className="tab-strip">
             <div className="tab-cluster">
-              {snapshot.tabs.map((tab) => (
+              {tabIslands.map(([islandId, islandTabs]) => (
+                <div className="tab-island" key={islandId}>
+                  {islandTabs.length > 1 && (
+                    <button
+                      className="tab-island-toggle"
+                      onClick={() => setCollapsedIslands((state) => ({ ...state, [islandId]: !state[islandId] }))}
+                      title={`${collapsedIslands[islandId] ? "Expand" : "Collapse"} ${islandTabs[0].islandName || islandId} tab island`}
+                    >
+                      {collapsedIslands[islandId] ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                      <span>{islandTabs[0].islandName || islandId}</span>
+                      <small>{islandTabs.length}</small>
+                    </button>
+                  )}
+                  {!collapsedIslands[islandId] && islandTabs.map((tab) => (
                 <button
                   key={tab.id}
                   draggable
-                  className={`tab-pill ${tab.id === snapshot.activeTabId ? "active" : ""} ${tab.isPinned ? "pinned" : ""}`}
-                  onClick={() => void window.space.tabAction("activate", { tabId: tab.id })}
+                  className={`tab-pill ${tab.id === snapshot.activeTabId ? "active" : ""} ${tab.isPinned ? "pinned" : ""} ${selectedTabIds.includes(tab.id) ? "selected" : ""}`}
+                  onClick={(event) => {
+                    if (event.ctrlKey || event.metaKey) {
+                      setSelectedTabIds((ids) => ids.includes(tab.id) ? ids.filter((id) => id !== tab.id) : [...ids, tab.id]);
+                      return;
+                    }
+                    void window.space.tabAction("activate", { tabId: tab.id });
+                  }}
                   onMouseDown={(event) => {
                     if (event.button === 1) {
                       event.preventDefault();
@@ -733,8 +788,21 @@ export function App() {
                     </span>
                   </span>
                 </button>
+                  ))}
+                </div>
               ))}
             </div>
+            {selectedTabIds.length > 1 && (
+              <button
+                className="new-tab-button"
+                onClick={() => {
+                  const name = window.prompt("Name this tab island", "New Island")?.trim();
+                  if (name) void window.space.tabAction("group-tabs", { tabIds: selectedTabIds, name });
+                  setSelectedTabIds([]);
+                }}
+                title="Group selected tabs into an island"
+              ><FolderPlus size={16} /></button>
+            )}
               <button className="new-tab-button" onClick={() => void window.space.tabAction("new")} title="New tab">
               <Plus size={19} />
             </button>
@@ -804,7 +872,7 @@ export function App() {
             </div>
 
             <div className="address-shell">
-              <button className={`shield-pill ${activeTab?.shieldState.httpsUpgrade ? "on" : "off"}`} onClick={() => void toggleUtilityPanel("shields")} title="Shields">
+              <button className={`shield-pill ${activeTab?.shieldState.httpsUpgrade ? "on" : "off"}`} onClick={() => void window.space.tabAction("shields-menu")} title="Shields: site privacy controls and blocked request counts">
                 <span className="shield-click-zone">
                 <ShieldCheck size={17} />
                 Shields
@@ -831,7 +899,12 @@ export function App() {
                 const extension = extensions.find((item) => item.id === id);
                 if (!extension) return null;
                 return (
-                  <button key={id} className="toolbar-utility pinned-extension-button" title={extension.name}>
+                  <button
+                    key={id}
+                    className="toolbar-utility pinned-extension-button"
+                    onClick={() => void window.space.tabAction("extension-open", { extensionId: id })}
+                    title={extension.name}
+                  >
                     <Puzzle size={18} />
                   </button>
                 );
@@ -1055,7 +1128,7 @@ export function App() {
             <section className="glass-panel compact">
               <div className="panel-header">
                 <h2>Shields</h2>
-                <span>Per-site control</span>
+                <span>Default protection</span>
               </div>
               <div className="toggle-grid">
                 {renderShieldToggle("Ads", snapshot.settings.shieldDefaults.ads, (value) => window.space.setGlobalShields({ ads: value }))}
@@ -1063,9 +1136,6 @@ export function App() {
                 {renderShieldToggle("HTTPS", snapshot.settings.shieldDefaults.httpsUpgrade, (value) => window.space.setGlobalShields({ httpsUpgrade: value }))}
                 {renderShieldToggle("Cookies", snapshot.settings.shieldDefaults.cookies !== "allow", (value) =>
                   window.space.setGlobalShields({ cookies: value ? "block-third-party" : "allow" })
-                )}
-                {renderShieldToggle("Fingerprint", snapshot.settings.shieldDefaults.fingerprinting, (value) =>
-                  window.space.setGlobalShields({ fingerprinting: value })
                 )}
                 {renderShieldToggle("Scripts", snapshot.settings.shieldDefaults.scripts, (value) => window.space.setGlobalShields({ scripts: value }))}
               </div>
@@ -1482,51 +1552,40 @@ function ExtensionsPage({ snapshot, activeTab, patchSettings }: Pick<SidebarPane
 function ModsPage({ snapshot, patchSettings }: Pick<SidebarPanelProps, "snapshot" | "patchSettings">) {
   return (
     <div className="mods-page-body">
-      <section className="mod-command-center">
-        <div className="mod-orb">
-          <SpaceLogoMark />
-          <strong>53%</strong>
-        </div>
-        <div className="mod-spokes">
-          {[
-            ["Interface", Brush, "66%"],
-            ["Sounds", Volume2, snapshot.settings.soundsEnabled ? "On" : "Off"],
-            ["Effects", Zap, "0%"],
-            ["Wallpapers", Wallpaper, "GX"],
-            ["Cursors", MousePointer2, "Default"]
-          ].map(([label, Icon, value]) => {
-            const ModIcon = Icon as LucideIcon;
-            return (
-              <button className="mod-spoke" key={String(label)}>
-                <ModIcon size={20} />
-                <strong>{String(value)}</strong>
-                <span>{String(label)}</span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-      <aside className="mod-side-panel">
-        <h3>Mod Everything</h3>
-        <button onClick={() => void patchSettings({ theme: nextTheme(snapshot.settings.theme) })}>Cycle theme</button>
-        <button onClick={() => void patchSettings({ soundsEnabled: !snapshot.settings.soundsEnabled })}>Toggle sounds</button>
-        <button onClick={() => void window.space.importMods()}>Import mod JSON</button>
-        <button onClick={() => void window.space.exportMods()}>Export mods</button>
-      </aside>
       <section className="native-section mod-theme-section">
-        <h3>Themes</h3>
+        <h3>Browser appearance</h3>
+        <label className="mod-color-control">
+          Accent color
+          <input type="color" value={snapshot.settings.accentColor || themeAccent(snapshot.settings.theme)} onChange={(event) => void patchSettings({ accentColor: event.target.value })} />
+          <button onClick={() => void patchSettings({ accentColor: "" })}>Reset</button>
+        </label>
         <div className="theme-grid native-theme-grid">
           {themeOptions.map((theme) => (
             <button
               className={`theme-card ${snapshot.settings.theme === theme.id ? "active" : ""} theme-swatch-${theme.id}`}
               key={theme.id}
-              onClick={() => void patchSettings({ theme: theme.id })}
+              onClick={() => void patchSettings({ theme: theme.id, accentColor: "" })}
             >
               <span>{theme.name}</span>
               <strong>{theme.hint}</strong>
             </button>
           ))}
         </div>
+      </section>
+      <section className="native-section">
+        <div className="panel-header">
+          <h3>Appearance mods</h3>
+          <div>
+            <button onClick={() => void window.space.importMods()}>Import JSON</button>
+            <button onClick={() => void window.space.exportMods()}>Export JSON</button>
+          </div>
+        </div>
+        {(snapshot.mods ?? []).length === 0 ? <p>No local appearance mods installed.</p> : (snapshot.mods ?? []).map((mod) => (
+          <div className="mod-record" key={mod.id}>
+            <div><strong>{mod.name}</strong><span>{mod.author} · {mod.version}</span></div>
+            <label><input type="checkbox" checked={mod.enabled} onChange={(event) => void window.space.toggleMod(mod.id, event.target.checked)} /> Enabled</label>
+          </div>
+        ))}
       </section>
     </div>
   );
@@ -1577,30 +1636,7 @@ function renderSidebarPanel({ appId, snapshot, activeTab, patchSettings, patchPe
 
         <section className="native-section" id="autofill-and-passwords">
           <h3>Autofill and Passwords</h3>
-          <div className="password-manager-card">
-            <div>
-              <KeyRound size={24} />
-              <strong>Password manager</strong>
-              <span>Chromium can save site credentials in the browser profile. Space_ surfaces the setting here and keeps local profile data on this PC.</span>
-            </div>
-            <div className="settings-toggle-list compact-list">
-              <button className="active" title="Let Chromium offer to save passwords for websites you sign in to.">
-                <BadgeCheck size={18} />
-                <strong>Offer to save passwords</strong>
-                <span>On</span>
-              </button>
-              <button className="active" title="Let websites use passkeys in normal full tabs. Sidebar message panels keep passkeys disabled to avoid surprise popups.">
-                <Fingerprint size={18} />
-                <strong>Passkeys in full tabs</strong>
-                <span>On</span>
-              </button>
-              <button title="Passwords stay local on this PC.">
-                <CloudSun size={18} />
-                <strong>Password sync</strong>
-                <span>Local only</span>
-              </button>
-            </div>
-          </div>
+          <p className="panel-note">Space_ does not include its own password vault or password sync. Websites can use passkeys in regular tabs through Windows and Chromium.</p>
         </section>
 
         <section className="native-section" id="privacy">
@@ -1917,7 +1953,6 @@ function renderShieldToggle(label: string, active: boolean, onChange: (value: bo
 function shieldIcon(label: string) {
   const common = { size: 16, strokeWidth: 2.2 };
   if (label === "Cookies") return <Cookie {...common} />;
-  if (label === "Fingerprint") return <Fingerprint {...common} />;
   if (label === "HTTPS") return <BadgeCheck {...common} />;
   return <Shield {...common} />;
 }

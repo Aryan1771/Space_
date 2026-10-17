@@ -15,7 +15,9 @@ const api = {
   navigate: (tabId: string, value: string) => ipcRenderer.invoke(IPC_CHANNELS.navigate, { tabId, value }),
   openSidebarApp: (appId: string) => ipcRenderer.invoke(IPC_CHANNELS.sidebarOpen, { appId }),
   resizeSidebar: (width: number, pinned: boolean) => ipcRenderer.invoke(IPC_CHANNELS.sidebarResize, { width, pinned }),
-  setUtilityDockOpen: (open: boolean) => ipcRenderer.invoke(IPC_CHANNELS.uiSetUtilityDock, { open }),
+  beginSidebarResize: () => ipcRenderer.invoke(IPC_CHANNELS.sidebarDragStart),
+  endSidebarResize: () => ipcRenderer.invoke(IPC_CHANNELS.sidebarDragEnd),
+  setUtilityDockOpen: (open: boolean, width?: number) => ipcRenderer.invoke(IPC_CHANNELS.uiSetUtilityDock, { open, width }),
   onFocusAddress: (listener: () => void) => {
     const wrapped = () => listener();
     ipcRenderer.on(IPC_CHANNELS.uiFocusAddress, wrapped);

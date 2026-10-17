@@ -77,6 +77,7 @@ export interface AppSettings {
   speedDial: Array<{ id: string; title: string; url: string; color?: string }>;
   hiddenSpeedDialIds: string[];
   pinnedExtensions: string[];
+  accentColor?: string;
 }
 
 export interface TabRecord {
@@ -90,6 +91,7 @@ export interface TabRecord {
   blocked?: { ads: number; trackers: number; scripts: number };
   workspaceId: string;
   islandId: string | null;
+  islandName?: string;
   isPinned: boolean;
   isMuted: boolean;
   isSplitParticipant: boolean;
@@ -143,6 +145,7 @@ export interface BrowserStateSnapshot {
   history: HistoryRecord[];
   downloads: DownloadRecord[];
   settings: AppSettings;
+  mods: Array<ModManifest & { enabled: boolean }>;
   sidebarOpen: boolean;
   sidebarPinned: boolean;
   sidebarWidth: number;

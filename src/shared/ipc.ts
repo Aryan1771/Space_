@@ -6,6 +6,9 @@ export const IPC_CHANNELS = {
   navigate: "tab:navigate",
   sidebarOpen: "sidebar:open",
   sidebarResize: "sidebar:resize",
+  sidebarDragStart: "sidebar:drag-start",
+  sidebarDragEnd: "sidebar:drag-end",
+  sidebarDragPointer: "sidebar:drag-pointer",
   uiSetUtilityDock: "ui:set-utility-dock",
   uiFocusAddress: "ui:focus-address",
   windowControl: "window:control",
@@ -26,5 +29,6 @@ export const IPC_CHANNELS = {
   extensionLoadUnpacked: "extensions:load-unpacked",
   extensionOpenStore: "extensions:open-store",
   screenshot: "tools:screenshot",
-  cleaner: "tools:cleaner"
+  cleaner: "tools:cleaner",
+  pageZoom: "page:zoom"
 } as const;
